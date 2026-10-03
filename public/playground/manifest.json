@@ -1,0 +1,44 @@
+{
+  "repository": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator",
+  "revision": "023172c8a7d629b5258d90364c13bafe013abbfa",
+  "files": {
+    "robot.xml": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/public/robot/mjlab/robot_allcollisions.xml",
+      "bytes": 32898,
+      "sha256": "7a6fdf437f5a80c7348ad801f43f906b997a834389cb70cca5e1e8517ba38044"
+    },
+    "collision-source.glb": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/public/robot/mjlab/microduck.glb",
+      "bytes": 1279444,
+      "sha256": "ad0b8d1c886a857fd09d337be11e731f4ac72bf099b0af63081031f97ed6eadb"
+    },
+    "kinematics.json": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/public/robot/mjlab/kinematics.json",
+      "bytes": 26666,
+      "sha256": "099c64fa03280514eed881accf563061a640eb7800d5ce15be5af92d1f63d38b"
+    },
+    "walking.onnx": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/public/policies/BEST_alpha_walking.onnx",
+      "bytes": 793705,
+      "sha256": "e36332d383997d51401897734cd3e79cf5038406feddb18b4d57ecfb141daa6c"
+    }
+  },
+  "adaptedSources": {
+    "game.js": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/src/game/game.js",
+      "sha256": "71ee74e2eef11ba172b2949462a591a6578a28291cee76cad72ff64cfdb0f563"
+    },
+    "constants.js": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/src/game/constants.js",
+      "sha256": "7342a74e19a77ccab0b25a146815c1d045f51e16c9cf5e4d74974ca67cb5a69e"
+    },
+    "arena.js": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/src/game/arena.js",
+      "sha256": "c87e60c8c7ee5448bc9c4df9f7984545201f0cad1ded1ef0eb4acb2a9896a537"
+    },
+    "duck.js": {
+      "url": "https://huggingface.co/spaces/pollen-robotics/microduck-simulator/resolve/023172c8a7d629b5258d90364c13bafe013abbfa/app/src/game/duck.js",
+      "sha256": "bfb6c5f3f5da74df626361ff874776de3366746b7e99d76cf5d5c642443de4ab"
+    }
+  }
+}

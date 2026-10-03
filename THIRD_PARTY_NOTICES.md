@@ -37,8 +37,9 @@ fixed revisions.
   70 visual mesh instances, preserving their body-local frames. It resolves
   default classes and material RGBA for visual attributes. The original XML
   remains authoritative for dynamics and collisions.
-- Rendered geometry and kinematics are generated exclusively from the native
-  simulation repository; runtime assets do not depend on the HF Space.
+- Wardrobe geometry and kinematics are generated exclusively from the native
+  simulation repository. The Playground uses separately pinned HF physics
+  assets as described below; no runtime fetch goes to the HF Space.
 
 ## Official Web reference
 
@@ -58,6 +59,23 @@ output hashes.
 DuckRobe's renderer assembles those official parts independently, applies its own
 soft cream/orange materials, and adds decorative preview animation. Clothing and
 accessory geometry authored for DuckRobe is separate from the native robot.
+
+## Dressed duck Playground
+
+- Upstream: [Pollen Robotics Microduck Sandbox](https://huggingface.co/spaces/pollen-robotics/microduck-simulator/tree/023172c8a7d629b5258d90364c13bafe013abbfa).
+- Revision: `023172c8a7d629b5258d90364c13bafe013abbfa`.
+- `public/playground/manifest.json` pins source URLs, SHA-256 hashes and sizes
+  for the walking ONNX policy, physics MJCF, collision-source GLB and reference
+  kinematics. These are separate from the wardrobe/export physics model.
+- `src/playground/arena.js` adapts `app/src/game/arena.js`; the controller,
+  constants and collision preparation adapt the same revision's `game.js`,
+  `constants.js` and `duck.js`. Source links and original hashes are recorded
+  in the Playground manifest.
+- The React shell, extra activities, audio, multiplayer and roller policies
+  are not included. The flat grid and walls retain the upstream visuals;
+  DuckRobe supplies its own controls and wardrobe rendering.
+- Runtime packages: `@mujoco/mujoco` 3.11.0 and `onnxruntime-web` 1.27.0,
+  pinned in the lockfile. Vite serves their WebAssembly files locally.
 
 ## Cover typography
 

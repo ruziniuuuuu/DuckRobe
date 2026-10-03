@@ -77,15 +77,15 @@ function materialFor(name, cache, colors) {
   return cache.get(slot);
 }
 
-async function json(url) {
-  const response = await fetch(url);
+async function json(url, signal) {
+  const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Microduck asset failed: ${response.status} ${url}`);
   return response.json();
 }
 
-export async function loadRobot({ colors } = {}) {
+export async function loadRobot({ colors, signal } = {}) {
   const bodyColors = normalizeRobotColors(colors);
-  const manifest = await json(robotAssetUrl('/robot/manifest.json'));
+  const manifest = await json(robotAssetUrl('/robot/manifest.json'), signal);
   const web = {
     ...manifest.web,
     glbUrl: robotAssetUrl(manifest.web.glbUrl),
@@ -97,10 +97,15 @@ export async function loadRobot({ colors } = {}) {
     meshBaseUrl: robotAssetUrl(manifest.native.meshBaseUrl),
     licenseUrl: robotAssetUrl(manifest.native.licenseUrl),
   };
-  const [kinematics, gltf] = await Promise.all([
-    json(web.kinematicsUrl),
-    new GLTFLoader().loadAsync(web.glbUrl),
+  const [kinematics, glb] = await Promise.all([
+    json(web.kinematicsUrl, signal),
+    fetch(web.glbUrl, { signal }).then(response => {
+      if (!response.ok) throw new Error(`Microduck asset failed: ${response.status} ${web.glbUrl}`);
+      return response.arrayBuffer();
+    }),
   ]);
+  signal?.throwIfAborted();
+  const gltf = await new GLTFLoader().parseAsync(glb, '');
 
   // The GLB packs official STL part geometries, not an assembled character.
   // Rebuild its body tree from our export of the pinned official MJCF.
@@ -116,6 +121,8 @@ export async function loadRobot({ colors } = {}) {
     geometry.computeBoundingBox();
     scaled.dispose();
     geometries.set(name, geometry);
+    object.geometry.dispose();
+    (Array.isArray(object.material) ? object.material : [object.material]).forEach(material => material.dispose());
   });
 
   const group = new THREE.Group();
@@ -160,10 +167,10 @@ export async function loadRobot({ colors } = {}) {
   }
 
   const rotation = new THREE.Quaternion();
-  function setJoint(name, angle) {
+  function setJoint(name, angle, { clamp = true } = {}) {
     const joint = joints.get(name);
     if (!joint) return;
-    if (joint.range) angle = THREE.MathUtils.clamp(angle, ...joint.range);
+    if (clamp && joint.range) angle = THREE.MathUtils.clamp(angle, ...joint.range);
     joint.angle = angle;
     rotation.setFromAxisAngle(joint.axis, angle);
     joint.body.quaternion.copy(joint.baseQuaternion).multiply(rotation);

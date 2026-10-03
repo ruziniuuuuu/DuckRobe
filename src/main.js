@@ -208,7 +208,7 @@ $('about-button').addEventListener('click', () => showInfo(`<div class="dialog-k
 $('source-button').addEventListener('click', () => showInfo(`<div class="dialog-kicker">BUILT WITH OPEN SOURCE</div><h2>${tr('sourceTitle')}</h2><p>${tr('sourceText')}</p><p><a href="https://github.com/ruziniuuuuu/DuckRobe" target="_blank" rel="noopener noreferrer" aria-label="${escape(tr('githubRepository'))}">${tr('projectRepository')} ↗</a></p><p><a href="https://github.com/pollen-robotics/microduck_rl" target="_blank" rel="noopener noreferrer">Microduck RL ↗</a></p><p><a href="https://huggingface.co/spaces/pollen-robotics/microduck-simulator" target="_blank" rel="noopener noreferrer">Microduck simulator ↗</a></p><p class="dialog-note">${tr('sourceNote')}</p>`));
 $('wardrobe-nav').addEventListener('click', () => setView('wardrobe')); $('saved-nav').addEventListener('click', () => setView('saved'));
 $('outfit-search').addEventListener('input', event => { state.query = event.target.value; renderCatalog({ resetScroll: true }); });
-document.addEventListener('keydown', event => { if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && !$('info-dialog').open) { event.preventDefault(); $('outfit-search').focus(); } });
+document.addEventListener('keydown', event => { if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && !$('info-dialog').open && !$('playground-dialog').open) { event.preventDefault(); $('outfit-search').focus(); } });
 $('filter-favorites').addEventListener('click', () => { state.favoritesOnly = !state.favoritesOnly; $('filter-favorites').setAttribute('aria-pressed', String(state.favoritesOnly)); renderCatalog({ resetScroll: true }); });
 $('clear-look').addEventListener('click', () => { state.selection = validSelection({}); refreshLook({ geometry: true }); refreshColors(); renderCatalog(); persist(); toast(tr('clearToast')); });
 $('favorite-look').addEventListener('click', () => { const look = currentLook(), ids = selectedItemIds(state.selection, state.slot); if (look) toggleFavorite(`look:${look.id}`); else if (ids.length === 1) toggleFavorite(`item:${ids[0]}`); else toast(tr('pickFavorite')); });
@@ -267,6 +267,47 @@ catalogScroll?.addEventListener('click', event => { if (performance.now() < igno
 window.addEventListener('pointerup', finishCatalogDrag);
 document.addEventListener('click', event => { if (!event.target.closest('.more-actions')) document.querySelector('.more-actions')?.removeAttribute('open'); });
 matchMedia('(min-width: 1100px)').addEventListener('change', () => { finishCatalogDrag(); renderCatalog(); });
+// This overlay deliberately leaves the catalog's view/filter state and DOM
+// mounted. setView() would clear search and reset the catalog scroll.
+let playground, playgroundVisit = 0, wardrobeReturn;
+const playgroundDialog = $('playground-dialog');
+function closePlayground() {
+  if (!playgroundDialog.open) return;
+  playgroundVisit++; playground?.dispose(); playground = null;
+  if (window.duckrobe) window.duckrobe.playground = null;
+  playgroundDialog.close(); $('playground-host').replaceChildren();
+  document.body.style.overflow = wardrobeReturn.overflow;
+  preview?.setSuspended(false);
+  $('catalog-scroll').scrollTop = wardrobeReturn.catalogTop;
+  scrollTo(wardrobeReturn.x, wardrobeReturn.y);
+  wardrobeReturn.focus?.focus({ preventScroll: true });
+}
+async function openPlayground() {
+  if (!preview || playgroundDialog.open) return;
+  const visit = ++playgroundVisit;
+  wardrobeReturn = { overflow: document.body.style.overflow, x: scrollX, y: scrollY, catalogTop: $('catalog-scroll').scrollTop, focus: document.activeElement };
+  preview.setSuspended(true); document.body.style.overflow = 'hidden';
+  const host = $('playground-host');
+  host.innerHTML = `<div class="playground-opening"><button id="playground-opening-back">← ${tr('playgroundBack')}</button><p>${tr('playgroundLoading')}</p></div>`;
+  $('playground-opening-back').addEventListener('click', closePlayground);
+  playgroundDialog.showModal();
+  try {
+    const { createPlayground } = await import('./playground/index.js');
+    if (visit !== playgroundVisit || !playgroundDialog.open) return;
+    playground = createPlayground({ host, selection: structuredClone(state.selection), colors: { ...state.colors }, language: state.language, onExit: closePlayground });
+    window.duckrobe.playground = playground;
+  } catch (error) {
+    if (visit !== playgroundVisit || !playgroundDialog.open) return;
+    const opening = host.querySelector('.playground-opening');
+    if (opening) {
+      opening.querySelector('p').textContent = `${tr('playgroundErrorHelp')} ${error.message}`;
+      const retry = document.createElement('button'); retry.textContent = tr('retry'); opening.append(retry);
+      retry.addEventListener('click', () => { closePlayground(); void openPlayground(); });
+    }
+  }
+}
+$('open-playground').addEventListener('click', openPlayground);
+playgroundDialog.addEventListener('cancel', event => { event.preventDefault(); closePlayground(); });
 setLanguage(state.language);
 createPreview({ viewer: $('viewer'), onFraming: updateFrameButton, colors: state.colors, selection: state.selection, onReaction: () => {
   const bubble = $('pet-reaction'); bubble.hidden = false; bubble.textContent = ['♡', '✦', '♪'][Math.floor(Math.random() * 3)]; clearTimeout(reactionTimer); reactionTimer = setTimeout(() => { bubble.hidden = true; }, 1700);
@@ -276,7 +317,7 @@ createPreview({ viewer: $('viewer'), onFraming: updateFrameButton, colors: state
   preview.setColors(state.colors); preview.setSelection(state.selection); preview.setLabel(tr('canvasLabel')); setMotion();
   const look = currentLook();
   preview.thumbnails.set(look && colorKey(state.colors) === colorKey(lookColors(look)) ? thumbnailKey(look, false) : 'initial-preview', preview.makeThumbnail(state.selection, { colors: state.colors }));
-  $('viewer-loading').hidden = true; $('export-look').disabled = false; renderCatalog();
+  $('viewer-loading').hidden = true; $('export-look').disabled = false; $('open-playground').disabled = false; renderCatalog();
   window.duckrobe = { ready: true, state, rig: preview.rig, OUTFITS, ITEMS, THEMES, SLOT_IDS, ACCESSORY_REGIONS, ACTIONS, normalizeSelection, selectedItemIds, selectionKey, selectLook, selectItem, preview, thumbnails: preview.thumbnails, getLookName };
 }).catch(error => {
   console.error(error);

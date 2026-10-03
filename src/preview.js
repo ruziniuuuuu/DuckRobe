@@ -57,7 +57,7 @@ export async function createPreview({ viewer, colors, selection, onReaction = ()
   const resize = () => { const { width, height } = viewer.getBoundingClientRect(); if (width && height) { renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); } };
   resize(); new ResizeObserver(resize).observe(viewer);
   const rig = await loadRobot({ colors }); scene.add(rig.group); rig.animate(0, { enabled: false });
-  let activeParts = attach(rig, selection), enabled = true, dragging = false, inspectUntil = 0, lastReaction = -10;
+  let activeParts = attach(rig, selection), enabled = true, suspended = false, animationFrame, dragging = false, inspectUntil = 0, lastReaction = -10;
   let pointer = { x: 0, y: 0, near: 0, active: false }, pointerMovedAt = -Infinity;
   const clock = new THREE.Clock(), robotCenter = new THREE.Vector3();
   const cameraRight = new THREE.Vector3(), cameraUp = new THREE.Vector3(), gaze = new THREE.Vector3();
@@ -92,6 +92,12 @@ export async function createPreview({ viewer, colors, selection, onReaction = ()
     setSelection(next) { dispose(activeParts); activeParts = attach(rig, next); inspectUntil = performance.now() + 1200; },
     setColors(next) { rig.setColors(next); },
     setMotion(next) { enabled = next; },
+    setSuspended(next) {
+      if (suspended === next) return;
+      suspended = next;
+      if (next) { cancelAnimationFrame(animationFrame); pointer.active = false; }
+      else { resize(); lastFrame = performance.now(); animate(); if (queued.size && !working) void processQueue(); }
+    },
     trigger(action) { inspectUntil = 0; if (['hop', 'double-hop', 'dance', 'turn', 'tiny-steps', 'toe-tap', 'bow'].includes(action)) frameCamera('full'); return rig.trigger(action); },
     setFraming: frameCamera,
     getFraming() { return framing; },
@@ -116,7 +122,8 @@ export async function createPreview({ viewer, colors, selection, onReaction = ()
   viewer.addEventListener('pointerleave', () => { pointer = { ...pointer, active: false, near: 0 }; });
   let lastFrame = performance.now();
   function animate() {
-    requestAnimationFrame(animate);
+    if (suspended) return;
+    animationFrame = requestAnimationFrame(animate);
     const now = performance.now(), delta = Math.min((now - lastFrame) / 1000, .1); lastFrame = now;
     if (cameraTransition) {
       const alpha = reducedMotion.matches ? 1 : 1 - Math.exp(-delta * 5);
@@ -173,15 +180,15 @@ export async function createPreview({ viewer, colors, selection, onReaction = ()
       else queued.set(job.key, { ...job, onReady });
     }
     api.thumbnailsPending = queued.size;
-    if (!working) void processQueue();
+    if (!working && !suspended) void processQueue();
   };
   async function processQueue() {
     working = true;
     try {
-      while (queued.size) {
+      while (queued.size && !suspended) {
         await frame();
         // A category change can cancel the queue while this frame is pending.
-        if (!queued.size) break;
+        if (!queued.size || suspended) break;
         const [key, job] = queued.entries().next().value; queued.delete(key);
         const url = thumbnail(job.selection, job.options);
         api.thumbnails.set(key, url);

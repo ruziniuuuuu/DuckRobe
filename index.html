@@ -35,7 +35,7 @@
             </div>
             <div class="look-summary"><div><span class="look-eyebrow" id="look-series">TODAY’S LITTLE LOOK</span><h2 id="look-name">A little sunshine</h2><p id="look-description">Pick a look. Let your little duck do the happy part.</p></div><button class="favorite-look icon-button" id="favorite-look" aria-label="Favorite this look" data-i18n-aria="favoriteLook"><span data-icon="heart"></span></button></div>
             <div class="mix-panel"><div class="mix-heading"><span data-i18n="wearingNow">Wearing now</span><button id="clear-look" data-i18n="clearLook">Take it all off</button></div><div class="equipped-items" id="equipped-items"><span class="equipped-empty" data-i18n="nothingEquipped">Just your duck, for now.</span></div></div>
-            <div class="look-actions"><button class="save-button" id="save-look"><span data-icon="bookmark"></span><span data-i18n="saveLook">Save this look</span></button><button class="export-button" id="export-look"><span data-icon="download"></span><span><span data-i18n="exportLook">Take your duck home</span><small>URDF + MJCF</small></span><span data-icon="arrow-up-right"></span></button></div>
+            <div class="look-actions"><button class="playground-launch" id="open-playground" disabled><span data-icon="move"></span><span data-i18n="playgroundTry">Try in playground</span><span aria-hidden="true">→</span></button><button class="save-button" id="save-look"><span data-icon="bookmark"></span><span data-i18n="saveLook">Save this look</span></button><button class="export-button" id="export-look"><span data-icon="download"></span><span><span data-i18n="exportLook">Take your duck home</span><small>URDF + MJCF</small></span><span data-icon="arrow-up-right"></span></button></div>
           </section>
           <section class="closet" aria-label="Clothing wardrobe" data-i18n-aria="clothingWardrobe">
             <div class="closet-controls">
@@ -57,6 +57,7 @@
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <dialog id="info-dialog"><button class="dialog-close icon-button" id="dialog-close" aria-label="Close" data-i18n-aria="close"><span data-icon="x"></span></button><div id="dialog-content"></div></dialog>
+    <dialog id="playground-dialog" aria-label="Playground" data-i18n-aria="playgroundTitle"><div id="playground-host"></div></dialog>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
