@@ -255,7 +255,12 @@ $('source-button').addEventListener('click', () => showInfo(`<div class="dialog-
 $('wardrobe-nav').addEventListener('click', () => setView('wardrobe')); $('saved-nav').addEventListener('click', () => setView('saved'));
 $('outfit-search').addEventListener('input', event => { state.query = event.target.value; renderCatalog({ resetScroll: true }); });
 document.addEventListener('keydown', event => { if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && !$('info-dialog').open && !$('playground-dialog').open) { event.preventDefault(); $('outfit-search').focus(); } });
-$('filter-favorites').addEventListener('click', () => { state.favoritesOnly = !state.favoritesOnly; $('filter-favorites').setAttribute('aria-pressed', String(state.favoritesOnly)); renderCatalog({ resetScroll: true }); });
+$('filter-favorites').addEventListener('click', () => {
+  state.favoritesOnly = !state.favoritesOnly;
+  $('filter-favorites').setAttribute('aria-pressed', String(state.favoritesOnly));
+  renderCatalog({ resetScroll: true });
+  $('collection-filter').open = false;
+});
 $('clear-look').addEventListener('click', () => { changeLook(() => { state.selection = validSelection({}); }); toast(tr('clearToast')); });
 $('random-button').addEventListener('click', () => { const pool = (state.slot === 'all' ? OUTFITS : ITEMS.filter(item => item.slot === state.slot)).filter(item => (state.theme === 'all' || item.theme === state.theme) && (state.slot !== 'accessory' || state.accessoryRegion === 'all' || item.region === state.accessoryRegion)); const alternatives = pool.filter(item => state.slot === 'all' ? item.id !== currentLook()?.id : !selectedItemIds(state.selection).includes(item.id)); const choice = alternatives[Math.floor(Math.random() * alternatives.length)]; if (choice) state.slot === 'all' ? selectLook(choice.id) : selectItem(choice.id); toast(tr('randomToast')); });
 $('motion-toggle').addEventListener('click', () => { state.bouncing = !state.bouncing; setMotion(); });

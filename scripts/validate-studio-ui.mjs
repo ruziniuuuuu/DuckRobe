@@ -128,6 +128,13 @@ try{
   const after=await page.locator('#viewer').boundingBox();assert.deepEqual(after,before);assert.equal(await page.evaluate(()=>scrollY),0);
   assert(after.height>150);await page.screenshot({path:path.join(output,'mobile-scroll.png')});
  });
+ await check('favorites filter dismisses itself and leaves the first result clickable',async()=>{
+  await page.locator('#wardrobe-nav').click();await page.locator('[data-slot="all"]').click();
+  await page.locator('[data-outfit="butter-walk"] .card-heart').click();
+  await revealControl('#filter-favorites');assert.equal(await page.locator('#collection-filter').evaluate(el=>el.open),false);
+  await page.locator('[data-outfit="butter-walk"] .card-heart').click();assert.equal(await page.locator('[data-outfit]').count(),0);
+  await revealControl('#filter-favorites');assert.equal(await page.locator('[data-outfit]').count(),100);
+ });
  await check('no browser errors',async()=>assert.deepEqual(errors,[]));
 }finally{await writeFile(path.join(output,'validation.json'),JSON.stringify({url,checks,errors},null,2));await browser.close();}
 assert(checks.every(check=>check.status==='passed'),'Studio UI checks failed');
