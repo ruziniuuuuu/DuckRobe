@@ -51,9 +51,10 @@ hat, eyewear, shoes and all three accessory regions.
 
 On macOS, `DUCKROBE_QA_GPU=metal npm run check:playground:ui` uses native Metal
 rendering. On Linux with a working Vulkan driver, `DUCKROBE_QA_GPU=vulkan`
-uses the available GPU. The default remains SwiftShader for headless environments without
-a hardware GPU; the same GPU option is supported by `check:ui`. For a stable
-wardrobe regression run, build once, run `npm run preview` and set
+uses the available GPU. The default remains SwiftShader for headless environments
+without a hardware GPU; the same option is supported by `check:ui` and
+`scripts/profile-playground.mjs`. For a stable wardrobe regression run, build
+once, run `npm run preview` and set
 `DUCKROBE_URL` to its address so source edits cannot interrupt checks with HMR.
 Inspect all three outdoor environments in portrait and landscape;
 use Overview and Follow camera, collect a park stamp, cross the circuit start

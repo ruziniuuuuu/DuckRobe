@@ -461,3 +461,24 @@ and shoe soles can intersect the floor because contacts use the official bare
 feet. No cloth physics, garment collisions, physical root lift, ZIP import,
 ride boarding, rollers or multiplayer are included. Physical-phone
 GPU performance is not established by responsive Chromium viewport checks.
+
+
+## Integrated studio verification (2026-10-09)
+
+The PR #3/#4 integration passed 46 Playground browser checks under both `/` and
+`/DuckRobe/`, using Chromium with native Vulkan on an NVIDIA RTX 5090 D v2.
+This includes actual PNG/700px QR decoding, fresh-recipient restoration, album
+wear followed by studio undo, world switching, camera settling, recovery,
+resource disposal and portrait/landscape controls. Wardrobe (18 checks) and
+studio (11 checks) passed separately with SwiftShader. Physics, world contacts,
+activity/persistence and sharing validation also passed.
+
+The integrated default circuit measured approximately 60 FPS at 1440×900 with
+pixel ratios 1 and 2 on that GPU; first/repeat worker-ready times were
+1.03–1.25 seconds. The scene submits about 3.78 million triangles and 996 draw
+calls. These are desktop measurements, not phone performance claims. A
+SwiftShader profiling attempt measured about 0.48 FPS before a return-button
+interaction timed out; the full software-rendered Playground suite did not
+complete, although its paused-orbit regression passed. Dense scenery remains
+a limitation for software rendering and requires real-device measurement before
+making mobile performance claims.
