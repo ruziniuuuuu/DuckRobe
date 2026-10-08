@@ -10,7 +10,9 @@ assert.match(label, /^[a-z\d_-]+$/i, 'Use a simple filename label');
 const appUrl = process.env.DUCKROBE_URL || 'http://127.0.0.1:5173/';
 const output = path.resolve(process.env.DUCKROBE_QA_OUTPUT || 'test-results/playground-performance');
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const gpu = process.env.DUCKROBE_QA_GPU || 'swiftshader';
+const gpuArgs = gpu === 'metal' ? ['--use-angle=metal'] : gpu === 'vulkan' ? ['--enable-gpu', '--use-angle=vulkan'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', ...gpuArgs] });
 const results = [];
 const replace = (body, before, after) => {
   assert(body.includes(before), 'Profiler requires the current Vite development source');
@@ -95,4 +97,4 @@ try {
     } finally { await context.close(); }
   }
 } finally { await browser.close(); }
-await writeFile(path.join(output, `${label}.json`), JSON.stringify({ label, appUrl, startupMeasurement: 'Click event to worker ready', renderer: 'Chromium SwiftShader', results }, null, 2));
+await writeFile(path.join(output, `${label}.json`), JSON.stringify({ label, appUrl, startupMeasurement: 'Click event to worker ready', renderer: `Chromium ${gpu}`, results }, null, 2));

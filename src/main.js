@@ -5,6 +5,7 @@ import { createPreview } from './preview.js';
 import { exportLook } from './export.js';
 import { t, localized, applyLanguage } from './i18n.js';
 import { ACTIONS } from './behavior.js';
+import { createLookLink, readSharedLook } from './shared-look.js';
 
 const icons = {
   duck: '<path d="M5 14V8a6 6 0 0 1 12 0v3h5l-5 4v4H5Z"/><circle cx="13" cy="7" r=".8"/><path d="M8 20v2m6-2v2M6 22h4m2 0h4"/>',
@@ -24,6 +25,8 @@ const regionKeys = { chest: 'regionChest', side: 'regionSide', back: 'regionBack
 const outfitById = new Map(OUTFITS.map(item => [item.id, item]));
 const itemById = new Map(ITEMS.map(item => [item.id, item]));
 const themeById = new Map(THEMES.map(item => [item.id, item]));
+const receivedLook = readSharedLook(location.hash);
+let sharedReceipt = receivedLook;
 const STORAGE_KEY = 'duckrobe.wardrobe.v2';
 const THUMBNAIL_VERSION = 'microduck-accessories-v5';
 let stored = {};
@@ -36,26 +39,63 @@ const state = {
   saved: (Array.isArray(stored.saved) ? stored.saved : []).filter(look => look && typeof look.id === 'string' && look.selection && typeof look.selection === 'object').slice(0, 60).map(look => ({ id: look.id, selection: validSelection(look.selection), colors: normalizeRobotColors(look.colors), date: typeof look.date === 'string' ? look.date : new Date().toISOString(), thumbnail: look.thumbnailVersion === THUMBNAIL_VERSION && typeof look.thumbnail === 'string' && look.thumbnail.startsWith('data:image/') ? look.thumbnail : null, thumbnailVersion: THUMBNAIL_VERSION })),
   bouncing: !matchMedia('(prefers-reduced-motion: reduce)').matches,
 };
-let preview, toastTimer, reactionTimer, exporting = false, catalogObserver, catalogEpoch = 0, thumbnailFrame;
+let preview, toastUndo, colorGesture, toastTimer, reactionTimer, exporting = false, catalogObserver, catalogEpoch = 0, thumbnailFrame;
 const tr = (key, vars) => t(key, state.language, vars);
 const nameOf = item => localized(item, state.language);
 const colorKey = colors => `${colors.shell}/${colors.accent}`;
 const lookColors = look => normalizeRobotColors(look?.bodyColors);
 function currentLook(selection = state.selection) { return OUTFITS.find(look => selectionKey(look.selection) === selectionKey(selection)); }
 function getLookName(selection = state.selection) { return currentLook(selection) ? nameOf(currentLook(selection)) : selectedItemIds(selection).length ? tr('mixName') : tr('bareName'); }
-function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3500); }
-function persist() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ language: state.language, selection: state.selection, colors: state.colors, colorLocked: state.colorLocked, favorites: [...state.favorites], saved: state.saved })); } catch { toast(tr('storageError')); } }
+function toast(message, undo) {
+  $('toast-message').textContent = message; $('toast').hidden = false;
+  toastUndo = undo; $('toast-undo').hidden = !undo;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('toast').hidden = true; toastUndo = null; }, undo ? 10000 : 3500);
+}
+$('toast-undo').addEventListener('click', () => { const undo = toastUndo; toastUndo = null; $('toast').hidden = true; undo?.(); });
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ language: state.language, selection: state.selection, colors: state.colors, colorLocked: state.colorLocked, favorites: [...state.favorites], saved: state.saved }));
+    $('draft-status').textContent = tr('draftSaved');
+    return true;
+  } catch { $('draft-status').textContent = tr('draftUnsaved'); toast(tr('storageError')); return false; }
+}
+// History contains only editable appearance, never saved looks or browsing state.
+const lookHistory = [];
+const lookSnapshot = () => ({ selection: structuredClone(state.selection), colors: { ...state.colors }, colorLocked: state.colorLocked });
+const appearanceKey = look => `${selectionKey(look.selection)}:${colorKey(look.colors)}:${look.colorLocked}`;
+function changeLook(update, { group, geometry = true } = {}) {
+  const before = lookSnapshot();
+  update();
+  if (appearanceKey(before) === appearanceKey(state)) return;
+  if (!group || group !== colorGesture) {
+    lookHistory.push(before);
+    if (lookHistory.length > 40) lookHistory.shift();
+  }
+  colorGesture = group;
+  preview?.setColors(state.colors); refreshColors(); refreshLook({ geometry }); if (geometry) renderCatalog(); persist();
+}
+function undoLook() {
+  const previous = lookHistory.pop(); if (!previous) return;
+  colorGesture = null; Object.assign(state, previous);
+  preview?.setColors(state.colors); refreshColors(); refreshLook({ geometry: true }); renderCatalog(); persist();
+  toast(tr('undone'));
+}
+$('undo-look').addEventListener('click', undoLook);
+function refreshSharedReceipt() {
+  const note = $('shared-look-note');
+  note.hidden = !sharedReceipt || selectionKey(sharedReceipt.selection) !== selectionKey(state.selection) || colorKey(sharedReceipt.colors) !== colorKey(state.colors);
+  note.textContent = tr('sharedLookReceived');
+}
+function wearLook(look) {
+  changeLook(() => { state.selection = validSelection(look.selection); state.colors = normalizeRobotColors(look.colors); });
+  preview?.setFraming('full');
+}
 function refreshLook({ geometry = false } = {}) {
+  refreshSharedReceipt();
   if (geometry) preview?.setSelection(state.selection);
-  const look = currentLook(), hasClothes = selectedItemIds(state.selection).length > 0;
   $('look-name').textContent = getLookName();
-  $('look-description').textContent = look ? localized(look, state.language, 'description') : tr(hasClothes ? 'mixDescription' : 'bareDescription');
-  $('look-series').textContent = look ? nameOf(themeById.get(look.theme)).toUpperCase() : tr(hasClothes ? 'mixSeries' : 'original');
-  const activeIds = selectedItemIds(state.selection, state.slot);
-  const favoriteKey = look ? `look:${look.id}` : activeIds.length === 1 ? `item:${activeIds[0]}` : null;
-  $('favorite-look').classList.toggle('is-favorite', Boolean(favoriteKey && state.favorites.has(favoriteKey)));
-  $('favorite-look').setAttribute('aria-label', tr(favoriteKey && state.favorites.has(favoriteKey) ? 'unfavorite' : 'favorite', { name: getLookName() }));
-  $('favorite-look').setAttribute('aria-pressed', String(Boolean(favoriteKey && state.favorites.has(favoriteKey))));
+  $('undo-look').disabled = !lookHistory.length;
   $('saved-count').textContent = state.saved.length;
   $('equipped-items').innerHTML = SLOT_IDS.flatMap(slot => {
     const ids = selectedItemIds(state.selection, slot);
@@ -65,19 +105,31 @@ function refreshLook({ geometry = false } = {}) {
     });
   }).join('');
   $('equipped-items').querySelectorAll('[data-choose-slot]').forEach(button => button.addEventListener('click', () => { setView('wardrobe'); setSlot(button.dataset.chooseSlot); if (button.dataset.region) { state.accessoryRegion = button.dataset.region; renderAccessoryFilters(); renderCatalog({ resetScroll: true }); } }));
-  $('equipped-items').querySelectorAll('[data-remove-item]').forEach(button => button.addEventListener('click', () => { state.selection = removeItem(state.selection, button.dataset.removeItem); refreshLook({ geometry: true }); refreshColors(); renderCatalog(); persist(); }));
+  $('equipped-items').querySelectorAll('[data-remove-item]').forEach(button => button.addEventListener('click', () => { changeLook(() => { state.selection = removeItem(state.selection, button.dataset.removeItem); }); }));
 }
-function selectLook(id) { const look = outfitById.get(id); if (!look) return; state.selection = validSelection(look.selection); if (!state.colorLocked) { state.colors = lookColors(look); preview?.setColors(state.colors); } refreshLook({ geometry: true }); preview?.setFraming('full'); refreshColors(); renderCatalog(); persist(); }
-function selectItem(id) { const item = itemById.get(id); if (!item) return; state.selection = item.slot === 'accessory' && selectedItemIds(state.selection, 'accessory').includes(id) ? removeItem(state.selection, id) : equipItem(state.selection, id); refreshLook({ geometry: true }); if (!['hat', 'eyewear'].includes(item.slot)) preview?.setFraming('full'); refreshColors(); renderCatalog(); persist(); }
+function selectLook(id) {
+  const look = outfitById.get(id); if (!look) return;
+  changeLook(() => { state.selection = validSelection(look.selection); if (!state.colorLocked) state.colors = lookColors(look); });
+  preview?.setFraming('full');
+}
+function selectItem(id) {
+  const item = itemById.get(id); if (!item) return;
+  changeLook(() => { state.selection = item.slot === 'accessory' && selectedItemIds(state.selection, 'accessory').includes(id) ? removeItem(state.selection, id) : equipItem(state.selection, id); });
+  preview?.setFraming(['hat', 'eyewear'].includes(item.slot) ? 'portrait' : 'full');
+}
 function toggleFavorite(key) { state.favorites.has(key) ? state.favorites.delete(key) : state.favorites.add(key); refreshLook(); renderCatalog(); persist(); }
 function renderSlots() {
   $('slot-controls').innerHTML = ['all', ...SLOT_IDS].map(slot => `<button class="slot-button${state.slot === slot ? ' active' : ''}" data-slot="${slot}" aria-pressed="${state.slot === slot}">${icon(slotIcons[slot])}<span>${tr(slotKeys[slot])}</span></button>`).join('');
   $('slot-controls').querySelectorAll('button').forEach(button => button.addEventListener('click', () => setSlot(button.dataset.slot)));
 }
-function setSlot(slot) { if (!['hat', 'eyewear'].includes(slot)) preview?.setFraming('full'); state.slot = slot; state.accessoryRegion = 'all'; state.theme = 'all'; state.query = ''; $('outfit-search').value = ''; renderSlots(); renderFilters(); renderAccessoryFilters(); refreshLook(); renderCatalog({ resetScroll: true }); }
+function setSlot(slot) {
+  preview?.setFraming(['hat', 'eyewear'].includes(slot) ? 'portrait' : 'full');
+  state.slot = slot; state.accessoryRegion = 'all';
+  renderSlots(); renderFilters(); renderAccessoryFilters(); refreshLook(); renderCatalog({ resetScroll: true });
+}
 function renderFilters() {
   $('theme-filters').innerHTML = [{ id: 'all', name: tr('allThemes'), en: tr('allThemes') }, ...THEMES].map(theme => `<button class="theme-chip${state.theme === theme.id ? ' active' : ''}" data-theme="${theme.id}" aria-pressed="${state.theme === theme.id}">${escape(nameOf(theme))}</button>`).join('');
-  $('theme-filters').querySelectorAll('button').forEach(button => button.addEventListener('click', () => { state.theme = button.dataset.theme; renderFilters(); renderCatalog({ resetScroll: true }); }));
+  $('theme-filters').querySelectorAll('button').forEach(button => button.addEventListener('click', () => { state.theme = button.dataset.theme; renderFilters(); renderCatalog({ resetScroll: true }); $('collection-filter').open = false; }));
 }
 function renderAccessoryFilters() {
   const filters = $('accessory-filters'); if (!filters) return;
@@ -97,7 +149,7 @@ function observeCatalog(jobs, onReady) {
   };
   preview?.queueThumbnails([], ready);
   const scroll = $('catalog-scroll');
-  const root = scroll && matchMedia('(min-width: 1100px)').matches ? scroll : null;
+  const root = scroll;
   catalogObserver = new IntersectionObserver(entries => {
     for (const entry of entries) {
       const key = entry.target.dataset.thumbnail, job = jobByKey.get(key);
@@ -118,12 +170,11 @@ function renderCatalog({ resetScroll = false } = {}) {
   const scroll = $('catalog-scroll'), scrollTop = resetScroll ? 0 : scroll?.scrollTop || 0;
   $('wardrobe-nav').classList.toggle('active', !saved); $('saved-nav').classList.toggle('active', saved);
   $('closet-title').textContent = tr(saved ? 'savedTitle' : 'closetTitle');
-  $('closet-note').textContent = tr(saved ? 'savedNote' : 'closetNote');
   $('filter-favorites').hidden = saved; $('theme-filters').hidden = saved; $('slot-controls').parentElement.hidden = saved;
   if ($('accessory-filters')) $('accessory-filters').hidden = saved || state.slot !== 'accessory';
-  $('slot-caption').textContent = tr(isPart ? state.slot === 'accessory' ? 'multiPartHint' : 'partHint' : 'tryHint');
-  $('catalog-caption').textContent = tr(state.favoritesOnly && !saved ? 'favoritesNote' : 'catalogNote');
-  $('catalog-caption').hidden = saved || !state.favoritesOnly;
+  $('collection-filter').hidden = saved; $('random-button').hidden = saved;
+  $('collection-filter').classList.toggle('active', state.theme !== 'all' || state.favoritesOnly);
+  $('filter-favorites').setAttribute('aria-pressed', String(state.favoritesOnly));
   if (saved) {
     const looks = state.saved.filter(look => !query || `${getLookName(look.selection)} ${selectedItemIds(look.selection).map(id => `${itemById.get(id)?.en || ''} ${itemById.get(id)?.name || ''}`).join(' ')}`.toLowerCase().includes(query));
     $('result-count').textContent = `${looks.length} ${tr('savedLabel')}`;
@@ -133,8 +184,8 @@ function renderCatalog({ resetScroll = false } = {}) {
     }).join('') : emptyState('saved');
     grid.querySelectorAll('[data-saved]').forEach(card => {
       const look = state.saved.find(look => look.id === card.dataset.saved);
-      card.querySelector('.card-open').addEventListener('click', () => { state.selection = validSelection(look.selection); state.colors = { ...look.colors }; preview?.setColors(state.colors); refreshColors(); refreshLook({ geometry: true }); preview?.setFraming('full'); persist(); toast(tr('restoredToast')); });
-      card.querySelector('.card-delete').addEventListener('click', () => { state.saved = state.saved.filter(item => item.id !== look.id); persist(); refreshLook(); renderCatalog(); toast(tr('removedToast')); });
+      card.querySelector('.card-open').addEventListener('click', () => { changeLook(() => { state.selection = validSelection(look.selection); state.colors = { ...look.colors }; }); preview?.setFraming('full'); toast(tr('restoredToast')); });
+      card.querySelector('.card-delete').addEventListener('click', () => { const index = state.saved.indexOf(look); state.saved = state.saved.filter(item => item.id !== look.id); const kept = persist(); refreshLook(); renderCatalog(); if (kept) toast(tr('removedToast'), () => { if (state.saved.length >= 60) { toast(tr('savedLimit')); return; } state.saved.splice(index, 0, look); persist(); refreshLook(); renderCatalog(); }); });
     });
     observeCatalog(looks.filter(look => !look.thumbnail).map(look => ({ key: `saved:${look.id}`, selection: look.selection, options: { colors: look.colors } })), (key, url) => {
       const look = state.saved.find(look => `saved:${look.id}` === key);
@@ -169,6 +220,7 @@ const PALETTES = [
   { key: 'paletteMint', shell: '#a3bea5', accent: '#e2e6bd' }, { key: 'paletteBlue', shell: '#99b8cc', accent: '#ede3d2' }, { key: 'paletteRose', shell: '#dcb0ba', accent: '#f3dfc7' },
 ];
 function refreshColors() {
+  refreshSharedReceipt();
   $('shell-color').value = state.colors.shell; $('accent-color').value = state.colors.accent;
   $('palette-presets').innerHTML = PALETTES.map((palette, index) => `<button class="palette-preset${colorKey(palette) === colorKey(state.colors) ? ' active' : ''}" data-palette="${index}" style="background:linear-gradient(135deg,${palette.shell} 60%,${palette.accent} 60%)" aria-label="${escape(tr(palette.key))}" title="${escape(tr(palette.key))}" aria-pressed="${colorKey(palette) === colorKey(state.colors)}"></button>`).join('');
   $('palette-presets').querySelectorAll('button').forEach(button => button.addEventListener('click', () => setColors(PALETTES[button.dataset.palette])));
@@ -177,7 +229,7 @@ function refreshColors() {
   if ($('apply-look-colors')) { $('apply-look-colors').disabled = !look; $('apply-look-colors').title = tr(look ? 'applyLookPaletteHint' : 'chooseLookPaletteHint'); }
   if ($('color-status')) $('color-status').textContent = tr(state.colorLocked ? 'colorsLocked' : look && colorKey(state.colors) === colorKey(lookColors(look)) ? 'outfitPalette' : 'yourPalette');
 }
-function setColors(colors) { state.colors = normalizeRobotColors(colors); preview?.setColors(state.colors); refreshColors(); persist(); }
+function setColors(colors, { group, locked = true } = {}) { changeLook(() => { state.colors = normalizeRobotColors(colors); state.colorLocked = locked; }, { group, geometry: false }); }
 function setMotion() { preview?.setMotion(state.bouncing); $('motion-toggle').classList.toggle('active', state.bouncing); $('motion-toggle').setAttribute('aria-pressed', String(state.bouncing)); $('motion-label').textContent = tr(state.bouncing ? 'motionOn' : 'motionOff'); }
 function playAction(action) { preview?.trigger(action); $('moves-panel').open = false; $('moves-panel').querySelector('summary').focus({ preventScroll: true }); }
 function renderExtraActions() {
@@ -187,21 +239,27 @@ function renderExtraActions() {
 }
 function updateFrameButton(mode = preview?.getFraming() || 'full') { $('frame-camera').textContent = tr(mode === 'portrait' ? 'fullLook' : 'closeUp'); $('frame-camera').setAttribute('aria-pressed', String(mode === 'portrait')); }
 function setLanguage(language) { state.language = language; applyLanguage(language); renderSlots(); renderFilters(); renderAccessoryFilters(); renderExtraActions(); refreshLook(); refreshColors(); renderCatalog(); setMotion(); preview?.setLabel(tr('canvasLabel')); updateFrameButton(); persist(); }
-function showInfo(content) { $('dialog-content').innerHTML = content; $('info-dialog').showModal(); }
+function showInfo(content) { $('app-more').open = false; $('dialog-content').innerHTML = content; $('info-dialog').showModal(); }
 function hydrateIcons() { document.querySelectorAll('[data-icon]').forEach(node => { node.innerHTML = icon(node.dataset.icon); }); }
 $('frame-camera').addEventListener('click', () => preview?.setFraming(preview.getFraming() === 'portrait' ? 'full' : 'portrait'));
-$('studio-shuffle').addEventListener('click', () => $('random-button').click());
-const studioPanels = [...document.querySelectorAll('.studio-panel')];
+const studioPanels = [...document.querySelectorAll('.studio-panel, .app-more, .wearing-panel, .collection-filter')];
 for (const panel of studioPanels) panel.addEventListener('toggle', () => {
   if (panel.open) for (const other of studioPanels) if (other !== panel) other.open = false;
 });
 document.addEventListener('click', event => {
-  if (!event.target.closest('.studio-panel')) studioPanels.forEach(panel => { panel.open = false; });
+  for (const panel of studioPanels) if (!panel.contains(event.target)) panel.open = false;
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') for (const panel of studioPanels) if (panel.open) { panel.open = false; panel.querySelector('summary').focus(); }
 });
+document.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey && !event.altKey &&
+      !event.target.closest('input, textarea, [contenteditable="true"]') && !$('info-dialog').open && !$('playground-dialog').open) {
+    event.preventDefault(); undoLook();
+  }
+});
 hydrateIcons();
+$('info-dialog').addEventListener('close', () => $('app-more').querySelector('summary').focus({ preventScroll: true }));
 $('dialog-close').addEventListener('click', () => $('info-dialog').close());
 $('info-dialog').addEventListener('click', event => { if (event.target === $('info-dialog')) { const rect = event.target.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) event.target.close(); } });
 $('about-button').addEventListener('click', () => showInfo(`<div class="dialog-kicker">HELLO, LITTLE DUCK.</div><h2>${tr('aboutTitle')}</h2><p>${tr('aboutText')}</p><p>${tr('aboutStorage')}</p><p class="dialog-note">${tr('aboutNote')}</p>`));
@@ -209,26 +267,43 @@ $('source-button').addEventListener('click', () => showInfo(`<div class="dialog-
 $('wardrobe-nav').addEventListener('click', () => setView('wardrobe')); $('saved-nav').addEventListener('click', () => setView('saved'));
 $('outfit-search').addEventListener('input', event => { state.query = event.target.value; renderCatalog({ resetScroll: true }); });
 document.addEventListener('keydown', event => { if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && !$('info-dialog').open && !$('playground-dialog').open) { event.preventDefault(); $('outfit-search').focus(); } });
-$('filter-favorites').addEventListener('click', () => { state.favoritesOnly = !state.favoritesOnly; $('filter-favorites').setAttribute('aria-pressed', String(state.favoritesOnly)); renderCatalog({ resetScroll: true }); });
-$('clear-look').addEventListener('click', () => { state.selection = validSelection({}); refreshLook({ geometry: true }); refreshColors(); renderCatalog(); persist(); toast(tr('clearToast')); });
-$('favorite-look').addEventListener('click', () => { const look = currentLook(), ids = selectedItemIds(state.selection, state.slot); if (look) toggleFavorite(`look:${look.id}`); else if (ids.length === 1) toggleFavorite(`item:${ids[0]}`); else toast(tr('pickFavorite')); });
-$('random-button').addEventListener('click', () => { const pool = (state.slot === 'all' ? OUTFITS : ITEMS.filter(item => item.slot === state.slot)).filter(item => (state.theme === 'all' || item.theme === state.theme) && (state.slot !== 'accessory' || state.accessoryRegion === 'all' || item.region === state.accessoryRegion)); const choice = pool[Math.floor(Math.random() * pool.length)]; if (choice) state.slot === 'all' ? selectLook(choice.id) : selectItem(choice.id); toast(tr('randomToast')); });
+$('filter-favorites').addEventListener('click', () => {
+  state.favoritesOnly = !state.favoritesOnly;
+  $('filter-favorites').setAttribute('aria-pressed', String(state.favoritesOnly));
+  renderCatalog({ resetScroll: true });
+  $('collection-filter').open = false;
+});
+$('clear-look').addEventListener('click', () => { changeLook(() => { state.selection = validSelection({}); }); toast(tr('clearToast')); });
+$('random-button').addEventListener('click', () => { const pool = (state.slot === 'all' ? OUTFITS : ITEMS.filter(item => item.slot === state.slot)).filter(item => (state.theme === 'all' || item.theme === state.theme) && (state.slot !== 'accessory' || state.accessoryRegion === 'all' || item.region === state.accessoryRegion)); const alternatives = pool.filter(item => state.slot === 'all' ? item.id !== currentLook()?.id : !selectedItemIds(state.selection).includes(item.id)); const choice = alternatives[Math.floor(Math.random() * alternatives.length)]; if (choice) state.slot === 'all' ? selectLook(choice.id) : selectItem(choice.id); toast(tr('randomToast')); });
 $('motion-toggle').addEventListener('click', () => { state.bouncing = !state.bouncing; setMotion(); });
 $('jump-button')?.addEventListener('click', () => preview?.trigger('hop'));
 $('pet-action-menu').querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => playAction(button.dataset.action)));
 $('reset-camera').addEventListener('click', () => preview?.resetCamera());
-$('shell-color').addEventListener('input', event => setColors({ ...state.colors, shell: event.target.value }));
-$('accent-color').addEventListener('input', event => setColors({ ...state.colors, accent: event.target.value }));
+for (const channel of ['shell', 'accent']) {
+  const input = $(`${channel}-color`);
+  input.addEventListener('input', event => setColors({ ...state.colors, [channel]: event.target.value }, { group: channel }));
+  for (const event of ['change', 'blur']) input.addEventListener(event, () => { colorGesture = null; });
+}
 $('reset-colors').addEventListener('click', () => setColors(DEFAULT_ROBOT_COLORS));
-$('color-lock')?.addEventListener('click', () => { state.colorLocked = !state.colorLocked; refreshColors(); persist(); });
-$('apply-look-colors')?.addEventListener('click', () => { const look = currentLook(); if (look) setColors(lookColors(look)); });
+$('color-lock')?.addEventListener('click', () => { changeLook(() => { state.colorLocked = !state.colorLocked; }, { geometry: false }); });
+$('apply-look-colors')?.addEventListener('click', () => { const look = currentLook(); if (look) setColors(lookColors(look), { locked: false }); });
 document.querySelectorAll('[data-language]').forEach(button => button.addEventListener('click', () => setLanguage(button.dataset.language)));
 $('save-look').addEventListener('click', () => {
   if (!preview) { toast(tr('readyToast')); return; }
   if (state.saved.some(look => selectionKey(look.selection) === selectionKey(state.selection) && colorKey(look.colors) === colorKey(state.colors))) { toast(tr('duplicateToast')); return; }
   if (state.saved.length >= 60) { toast(tr('savedLimit')); return; }
   state.saved.unshift({ id: `look-${crypto.randomUUID()}`, selection: validSelection(state.selection), colors: { ...state.colors }, date: new Date().toISOString(), thumbnail: preview.makeThumbnail(state.selection, { colors: state.colors }), thumbnailVersion: THUMBNAIL_VERSION });
-  persist(); refreshLook(); renderCatalog(); toast(tr('savedToast'));
+  const kept = persist(); refreshLook(); renderCatalog(); if (kept) toast(tr('savedToast'));
+});
+$('share-look').addEventListener('click', async () => {
+  const link = createLookLink({ selection: state.selection, colors: state.colors });
+  try {
+    await navigator.clipboard.writeText(link);
+    $('app-more').open = false; $('app-more').querySelector('summary').focus(); toast(tr('linkCopied'));
+  } catch {
+    showInfo(`<h2>${tr('shareLook')}</h2><p>${tr('copyLinkHelp')}</p><input class="share-link-field" id="share-link-field" readonly aria-label="${tr('shareLook')}" value="${escape(link)}" />`);
+    $('share-link-field').focus(); $('share-link-field').select();
+  }
 });
 $('export-look').disabled = true;
 $('export-look').addEventListener('click', async () => {
@@ -249,7 +324,7 @@ function finishCatalogDrag() {
   if (catalogScroll?.hasPointerCapture(pointerId)) catalogScroll.releasePointerCapture(pointerId);
 }
 catalogScroll?.addEventListener('pointerdown', event => {
-  if (event.pointerType !== 'mouse' || event.button !== 0 || !matchMedia('(min-width: 1100px)').matches || catalogScroll.scrollHeight <= catalogScroll.clientHeight || event.target.closest('.card-heart, a, input')) return;
+  if (event.pointerType !== 'mouse' || event.button !== 0 || catalogScroll.scrollHeight <= catalogScroll.clientHeight || event.target.closest('.card-heart, a, input')) return;
   dragGesture = { id: event.pointerId, x: event.clientX, y: event.clientY, scrollTop: catalogScroll.scrollTop, active: false };
 });
 catalogScroll?.addEventListener('pointermove', event => {
@@ -266,7 +341,6 @@ catalogScroll?.addEventListener('lostpointercapture', finishCatalogDrag);
 catalogScroll?.addEventListener('click', event => { if (performance.now() < ignoreClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
 window.addEventListener('pointerup', finishCatalogDrag);
 document.addEventListener('click', event => { if (!event.target.closest('.more-actions')) document.querySelector('.more-actions')?.removeAttribute('open'); });
-matchMedia('(min-width: 1100px)').addEventListener('change', () => { finishCatalogDrag(); renderCatalog(); });
 // This overlay deliberately leaves the catalog's view/filter state and DOM
 // mounted. setView() would clear search and reset the catalog scroll.
 let playground, playgroundVisit = 0, wardrobeReturn;
@@ -286,6 +360,7 @@ async function openPlayground() {
   if (!preview || playgroundDialog.open) return;
   const visit = ++playgroundVisit;
   wardrobeReturn = { overflow: document.body.style.overflow, x: scrollX, y: scrollY, catalogTop: $('catalog-scroll').scrollTop, focus: document.activeElement };
+  studioPanels.forEach(panel => { panel.open = false; });
   preview.setSuspended(true); document.body.style.overflow = 'hidden';
   const host = $('playground-host');
   host.innerHTML = `<div class="playground-opening"><button id="playground-opening-back">← ${tr('playgroundBack')}</button><p>${tr('playgroundLoading')}</p></div>`;
@@ -294,7 +369,8 @@ async function openPlayground() {
   try {
     const { createPlayground } = await import('./playground/index.js');
     if (visit !== playgroundVisit || !playgroundDialog.open) return;
-    playground = createPlayground({ host, selection: structuredClone(state.selection), colors: { ...state.colors }, language: state.language, sourceRig: preview.rig, onExit: closePlayground });
+    playground = createPlayground({ host, selection: structuredClone(state.selection), colors: { ...state.colors }, language: state.language, sourceRig: preview.rig, lookName: getLookName(), onExit: closePlayground,
+      onWear: photo => { closePlayground(); wearLook(photo); } });
     window.duckrobe.playground = playground;
   } catch (error) {
     if (visit !== playgroundVisit || !playgroundDialog.open) return;
@@ -308,7 +384,16 @@ async function openPlayground() {
 }
 $('open-playground').addEventListener('click', openPlayground);
 playgroundDialog.addEventListener('cancel', event => { event.preventDefault(); closePlayground(); });
+function receiveLook(look) {
+  if (!look) { toast(tr('sharedLookInvalid')); return; }
+  closePlayground(); sharedReceipt = look; wearLook(look);
+  const url = new URL(location.href), params = new URLSearchParams(url.hash.slice(1));
+  params.delete('look'); url.hash = params.toString(); history.replaceState(history.state, '', url);
+  toast(tr('sharedLookReceived'));
+}
+window.addEventListener('hashchange', () => { const look = readSharedLook(location.hash); if (look !== undefined) receiveLook(look); });
 setLanguage(state.language);
+if (receivedLook !== undefined) receiveLook(receivedLook);
 createPreview({ viewer: $('viewer'), onFraming: updateFrameButton, colors: state.colors, selection: state.selection, onReaction: () => {
   const bubble = $('pet-reaction'); bubble.hidden = false; bubble.textContent = ['♡', '✦', '♪'][Math.floor(Math.random() * 3)]; clearTimeout(reactionTimer); reactionTimer = setTimeout(() => { bubble.hidden = true; }, 1700);
 } }).then(result => {
@@ -317,7 +402,7 @@ createPreview({ viewer: $('viewer'), onFraming: updateFrameButton, colors: state
   preview.setColors(state.colors); preview.setSelection(state.selection); preview.setLabel(tr('canvasLabel')); setMotion();
   const look = currentLook();
   preview.thumbnails.set(look && colorKey(state.colors) === colorKey(lookColors(look)) ? thumbnailKey(look, false) : 'initial-preview', preview.makeThumbnail(state.selection, { colors: state.colors }));
-  $('viewer-loading').hidden = true; $('export-look').disabled = false; $('open-playground').disabled = false; renderCatalog();
+  $('viewer-loading').hidden = true; $('save-look').disabled = false; $('export-look').disabled = false; $('open-playground').disabled = false; renderCatalog();
   window.duckrobe = { ready: true, state, rig: preview.rig, OUTFITS, ITEMS, THEMES, SLOT_IDS, ACCESSORY_REGIONS, ACTIONS, normalizeSelection, selectedItemIds, selectionKey, selectLook, selectItem, preview, thumbnails: preview.thumbnails, getLookName };
 }).catch(error => {
   console.error(error);

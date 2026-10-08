@@ -2,6 +2,8 @@
 
 [![DuckRobe — Every duck deserves a wardrobe.](public/brand/cover.png)](https://ruziniuuuuu.github.io/DuckRobe/)
 
+See the [studio guide](docs/studio.md) for editing, undo, sharing and local validation.
+
 ## Citation
 
 ```bibtex
