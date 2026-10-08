@@ -7,5 +7,5 @@ export default defineConfig({
   worker: { format: 'es' },
   // Prebundle on the dev server so the first lazy Playground visit does not
   // trigger Vite's dependency-discovery page reload. Clients still load lazily.
-  optimizeDeps: { include: ['three/addons/environments/RoomEnvironment.js', '@mujoco/mujoco', 'onnxruntime-web/wasm'] },
+  optimizeDeps: { include: ['three/addons/environments/RoomEnvironment.js', 'three/addons/geometries/RoundedBoxGeometry.js', 'qrcode-generator', '@mujoco/mujoco', 'onnxruntime-web/wasm'] },
 });

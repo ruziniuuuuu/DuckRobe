@@ -1,6 +1,7 @@
 import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
-import { ITEMS, normalizeSelection } from './outfits.js';
+import { ITEMS, OUTFITS, normalizeSelection, selectedItemIds, selectionKey } from './outfits.js';
 import { normalizeRobotColors } from './robot.js';
+import { localized, t } from './i18n.js';
 
 const itemById = new Map(ITEMS.map(item => [item.id, item]));
 const PUBLIC_URL = 'https://ruziniuuuuu.github.io/DuckRobe/';
@@ -50,4 +51,10 @@ export function createLookLink(look, base) {
   }
   const url = new URL(base); url.search = ''; url.hash = `look=${encodeSharedLook(look)}`;
   return url.href;
+}
+export function describeSharedLook(look, language) {
+  const selection = normalizeSelection(look.selection);
+  const outfit = OUTFITS.find(outfit => selectionKey(outfit.selection) === selectionKey(selection));
+  const pieces = selectedItemIds(selection).map(id => localized(itemById.get(id), language));
+  return { name: outfit ? localized(outfit, language) : t(pieces.length ? 'mixName' : 'bareName', language), pieces, colors: normalizeRobotColors(look.colors) };
 }

@@ -223,3 +223,5 @@ dialog a { color:var(--orange); }
 @media(prefers-reduced-motion:reduce) { *,*:before,*:after { scroll-behavior:auto !important; transition:none !important; animation:none !important; } }
 
 .share-link-field { width:100%; min-height:44px; border:1px solid var(--line); border-radius:10px; background:white; padding:10px; font-size:14px; }
+
+.shared-look-note { margin:4px 0; padding:8px 12px; border-radius:10px; background:#edf0e5; font-size:12px; line-height:1.4; color:var(--ink); }

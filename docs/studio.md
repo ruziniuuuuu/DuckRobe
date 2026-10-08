@@ -31,7 +31,8 @@ another category retains the search and collection filter.
 
 Play opens the existing simulation with the current outfit. Dress up returns to
 the mounted wardrobe with its browsing state, scroll, appearance and focus intact.
-Simulation behavior and exported model formats are unchanged.
+The walking policy and exported model formats are unchanged. Scene contacts and
+activities follow the selected playground world.
 
 ## Shared look links
 
@@ -45,8 +46,10 @@ an old look. Other hash parameters are retained.
 The versioned, bounded codec and its validation cases were selectively ported
 from [StriverAlex/DuckRobe commit c29ffa5be6](https://github.com/StriverAlex/DuckRobe/commit/c29ffa5be6),
 by hubowen. Links remain compatible with that fork's postcard QR codes.
-The world's activities, postcard album, QR rendering and replay system were not
-included in this integration; the imported feature requires no new dependency.
+PR #3's scene, activity, postcard and replay features are available inside the
+playground. Its postcard QR links use the same codec as the studio's Copy look
+link. Wearing a saved postcard goes through the studio's undo history.
+The wardrobe keeps its compact layout and does not add separate activity pages.
 
 ## Validation
 

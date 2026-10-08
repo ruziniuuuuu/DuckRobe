@@ -26,6 +26,7 @@ const outfitById = new Map(OUTFITS.map(item => [item.id, item]));
 const itemById = new Map(ITEMS.map(item => [item.id, item]));
 const themeById = new Map(THEMES.map(item => [item.id, item]));
 const receivedLook = readSharedLook(location.hash);
+let sharedReceipt = receivedLook;
 const STORAGE_KEY = 'duckrobe.wardrobe.v2';
 const THUMBNAIL_VERSION = 'microduck-accessories-v5';
 let stored = {};
@@ -81,7 +82,17 @@ function undoLook() {
   toast(tr('undone'));
 }
 $('undo-look').addEventListener('click', undoLook);
+function refreshSharedReceipt() {
+  const note = $('shared-look-note');
+  note.hidden = !sharedReceipt || selectionKey(sharedReceipt.selection) !== selectionKey(state.selection) || colorKey(sharedReceipt.colors) !== colorKey(state.colors);
+  note.textContent = tr('sharedLookReceived');
+}
+function wearLook(look) {
+  changeLook(() => { state.selection = validSelection(look.selection); state.colors = normalizeRobotColors(look.colors); });
+  preview?.setFraming('full');
+}
 function refreshLook({ geometry = false } = {}) {
+  refreshSharedReceipt();
   if (geometry) preview?.setSelection(state.selection);
   $('look-name').textContent = getLookName();
   $('undo-look').disabled = !lookHistory.length;
@@ -209,6 +220,7 @@ const PALETTES = [
   { key: 'paletteMint', shell: '#a3bea5', accent: '#e2e6bd' }, { key: 'paletteBlue', shell: '#99b8cc', accent: '#ede3d2' }, { key: 'paletteRose', shell: '#dcb0ba', accent: '#f3dfc7' },
 ];
 function refreshColors() {
+  refreshSharedReceipt();
   $('shell-color').value = state.colors.shell; $('accent-color').value = state.colors.accent;
   $('palette-presets').innerHTML = PALETTES.map((palette, index) => `<button class="palette-preset${colorKey(palette) === colorKey(state.colors) ? ' active' : ''}" data-palette="${index}" style="background:linear-gradient(135deg,${palette.shell} 60%,${palette.accent} 60%)" aria-label="${escape(tr(palette.key))}" title="${escape(tr(palette.key))}" aria-pressed="${colorKey(palette) === colorKey(state.colors)}"></button>`).join('');
   $('palette-presets').querySelectorAll('button').forEach(button => button.addEventListener('click', () => setColors(PALETTES[button.dataset.palette])));
@@ -357,7 +369,8 @@ async function openPlayground() {
   try {
     const { createPlayground } = await import('./playground/index.js');
     if (visit !== playgroundVisit || !playgroundDialog.open) return;
-    playground = createPlayground({ host, selection: structuredClone(state.selection), colors: { ...state.colors }, language: state.language, sourceRig: preview.rig, onExit: closePlayground });
+    playground = createPlayground({ host, selection: structuredClone(state.selection), colors: { ...state.colors }, language: state.language, sourceRig: preview.rig, lookName: getLookName(), onExit: closePlayground,
+      onWear: photo => { closePlayground(); wearLook(photo); } });
     window.duckrobe.playground = playground;
   } catch (error) {
     if (visit !== playgroundVisit || !playgroundDialog.open) return;
@@ -373,9 +386,7 @@ $('open-playground').addEventListener('click', openPlayground);
 playgroundDialog.addEventListener('cancel', event => { event.preventDefault(); closePlayground(); });
 function receiveLook(look) {
   if (!look) { toast(tr('sharedLookInvalid')); return; }
-  closePlayground();
-  changeLook(() => { state.selection = validSelection(look.selection); state.colors = normalizeRobotColors(look.colors); });
-  preview?.setFraming('full');
+  closePlayground(); sharedReceipt = look; wearLook(look);
   const url = new URL(location.href), params = new URLSearchParams(url.hash.slice(1));
   params.delete('look'); url.hash = params.toString(); history.replaceState(history.state, '', url);
   toast(tr('sharedLookReceived'));

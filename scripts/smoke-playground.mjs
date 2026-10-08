@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { build, createServer as createViteServer } from 'vite';
 import { chromium } from 'playwright';
+import { getWorld } from '../src/playground/worlds.js';
+import { checkAdventures, checkAlbumRestore } from './adventure-ui.mjs';
 
 // Exercise real production chunks and WASM under strict static hosting:
 // requests outside the selected base receive 404, never an SPA fallback.
@@ -19,7 +21,8 @@ async function revealControl(selector, target) {
 const output = path.resolve(process.env.DUCKROBE_QA_OUTPUT || 'test-results');
 await mkdir(output, { recursive: true });
 const temporary = await mkdtemp(path.join(tmpdir(), 'duckrobe-playground-'));
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const gpuArgs = process.env.DUCKROBE_QA_GPU === 'metal' ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', ...gpuArgs] });
 const results = [];
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
 async function check(name, action) { await action(); console.log(`PASS ${name}`); results.push(name); }
@@ -62,6 +65,9 @@ try {
       };
     });
     const page = await context.newPage(), errors = [], requests = [];
+    // Software-rendered scenery readback can outlast the interaction timeout.
+    // Keep behavioral waits unchanged, matching wardrobe screenshot allowances.
+    const snapshot = options => page.screenshot({ ...options, timeout: 90000 });
     page.setDefaultTimeout(45000);
     page.on('pageerror', error => errors.push(error.message));
     page.on('request', request => requests.push(request.url()));
@@ -71,6 +77,7 @@ try {
     const enter = async () => { await page.locator('#open-playground').click(); await status('running'); };
     const exit = async () => { await page.locator('[data-back]').click(); assert.equal(await page.locator('#playground-dialog').getAttribute('open'), null); assert.equal(await page.evaluate(() => window.__workers.active), 0); };
     const advance = async duration => { const start = (await state()).pose.time; await page.waitForFunction(time => window.duckrobe.playground.getState().pose.time >= time, start + duration); };
+    const chooseWorld = async id => { await page.locator('select[data-world]').selectOption(id); await status('running'); assert.equal((await state()).worldId, id); };
     try {
       await page.goto(appUrl); await page.waitForFunction(() => window.duckrobe?.ready);
       await check(`${base} simulation stays lazy in the wardrobe`, async () => {
@@ -80,6 +87,9 @@ try {
       await page.evaluate(() => {
         const app = window.duckrobe; app.selectLook(app.OUTFITS[0].id);
         for (const region of ['chest', 'side', 'back']) app.selectItem(app.ITEMS.find(item => item.region === region).id);
+        for (const [id, color] of [['shell-color', '#abcdef'], ['accent-color', '#654321']]) {
+          const input = document.getElementById(id); input.value = color; input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
       });
       await page.locator('#moves-panel > summary').click();
       await page.locator('#motion-toggle').click();
@@ -152,14 +162,83 @@ try {
         const resets = await page.evaluate(() => window.__workers.resets);
         await page.locator('[data-reset]').click(); await status('running');
         const reset = await page.evaluate(() => ({ count: window.__workers.resets, pose: window.__workers.lastReset }));
-        assert.equal(reset.count, resets + 1); assert.equal(reset.pose.time, 0); assert.deepEqual(reset.pose.root.slice(0, 3), [-.6, 0, .12]);
+        assert.equal(reset.count, resets + 1); assert.equal(reset.pose.time, 0); assert.deepEqual(reset.pose.root.slice(0, 3), getWorld('circuit').spawn);
         await page.mouse.move(700, 380); await page.mouse.down(); await page.mouse.move(800, 420, { steps: 8 }); await page.mouse.up();
         assert.equal((await state()).following, false);
         await page.locator('[data-follow]').click(); assert.equal((await state()).following, true);
         await page.mouse.move(750, 400); await page.mouse.wheel(0, 150);
         await page.waitForFunction(() => !window.duckrobe.playground.getState().following);
       });
-      await page.screenshot({ path: path.join(output, base === '/' ? 'playground-desktop.png' : 'playground-pages.png') });
+      await check(`${base} environment switching, input clearing, outfit preservation and overview`, async () => {
+        assert.equal((await state()).worldId, 'circuit');
+        for (const id of ['park', 'harbor', 'arena', 'circuit', 'park']) {
+          await page.locator('[data-back]').focus(); await page.keyboard.down('w');
+          await chooseWorld(id); await page.keyboard.up('w');
+          assert.equal(await page.evaluate(() => window.__workers.active), 1);
+          assert.equal(await page.locator('.playground-canvas canvas').count(), 1);
+          assert.deepEqual((await state()).selection, before.state.selection); assert.deepEqual((await state()).colors, before.state.colors);
+          const lastCommand = await page.evaluate(() => window.__workers.messages.findLast(message => message.type === 'command'));
+          assert.deepEqual([lastCommand.forward, lastCommand.turn], [0, 0]);
+          assert.equal(await page.locator('[data-activity]').isVisible(), id !== 'arena');
+          await page.locator('[data-overview]').click(); assert.equal((await state()).following, false);
+          assert.equal(await page.locator('[data-overview]').getAttribute('aria-pressed'), 'true');
+        }
+        await page.locator('[data-back]').focus(); await page.keyboard.down('w'); await advance(3); await page.keyboard.up('w');
+        assert((await state()).activity.stamps.includes('entrance'));
+        await page.locator('[data-pause]').click(); await status('paused');
+        await snapshot({ path: path.join(output, `playground-park${base === '/' ? '' : '-pages'}.png`) });
+        await page.locator('[data-reset]').click(); await status('running');
+        assert.deepEqual((await state()).activity.stamps, []);
+        await chooseWorld('circuit'); await page.locator('[data-pause]').click();
+        await snapshot({ path: path.join(output, `playground-circuit${base === '/' ? '' : '-pages'}.png`) });
+      });
+      await snapshot({ path: path.join(output, base === '/' ? 'playground-desktop.png' : 'playground-pages.png') });
+      await check(`${base} park rides follow simulation pause and reduced motion`, async () => {
+        const rides = () => page.evaluate(() => {
+          const scene = window.duckrobe.playground.rig.group.parent.parent;
+          return { wheel: scene.getObjectByName('park-ferris-wheel').rotation.y, carousel: scene.getObjectByName('park-carousel-turntable').rotation.z };
+        });
+        await chooseWorld('park'); const initial = await rides(); await advance(.3);
+        const moving = await rides(); assert.notEqual(moving.wheel, initial.wheel); assert.notEqual(moving.carousel, initial.carousel);
+        await page.locator('[data-pause]').click(); await status('paused'); await page.waitForTimeout(150);
+        const paused = await rides(); await page.waitForTimeout(150); assert.deepEqual(await rides(), paused);
+        await page.emulateMedia({ reducedMotion: 'reduce' }); await chooseWorld('arena'); await chooseWorld('park'); await advance(.3);
+        assert.deepEqual(await rides(), { wheel: 0, carousel: 0 });
+        await page.emulateMedia({ reducedMotion: 'no-preference' }); await chooseWorld('circuit'); await page.locator('[data-pause]').click();
+      });
+      await check(`${base} double-sided circuit clock follows real crossing, pause and reset`, async () => {
+        const clock = (remember = false) => page.evaluate(remember => {
+          const scene = window.duckrobe.playground.rig.group.parent.parent;
+          const front = scene.getObjectByName('circuit-clock-front'), back = scene.getObjectByName('circuit-clock-back');
+          const texture = front.material.map, pixels = texture.image.getContext('2d').getImageData(0, 0, 1024, 224).data;
+          if (remember) window.__clockPixels = pixels;
+          let hash = 2166136261, maxDifference = 0;
+          for (let i = 0; i < pixels.length; i++) { hash = Math.imul(hash ^ pixels[i], 16777619); maxDifference = Math.max(maxDifference, Math.abs(pixels[i] - window.__clockPixels[i])); }
+          return { hash, shared: texture === back.material.map, maxDifference };
+        }, remember);
+        const idle = await clock(true); assert(idle.shared);
+        const clockImage = () => page.evaluate(() => window.duckrobe.playground.rig.group.parent.parent.getObjectByName('circuit-clock-front').material.map.image.toDataURL().split(',')[1]);
+        const initialImage = await clockImage();
+        await page.locator('[data-pause]').click(); await status('running');
+        await page.locator('[data-back]').focus(); await page.keyboard.down('w');
+        await page.waitForFunction(() => window.duckrobe.playground.getState().activity.started);
+        await page.keyboard.up('w'); await advance(.4);
+        await page.locator('[data-pause]').click(); await status('paused'); await page.waitForTimeout(150);
+        const stopped = await clock(); assert.notEqual(stopped.hash, idle.hash);
+        await page.waitForTimeout(150); assert.deepEqual(await clock(), stopped);
+        await page.locator('[data-reset]').click(); await status('running');
+        await page.waitForFunction(() => !window.duckrobe.playground.getState().activity.started);
+        await page.waitForTimeout(150);
+        const resetClock = await clock();
+        if (resetClock.maxDifference > 3) {
+          await writeFile(path.join(output, 'clock-initial.png'), Buffer.from(initialImage, 'base64'));
+          await writeFile(path.join(output, 'clock-reset.png'), Buffer.from(await clockImage(), 'base64'));
+        }
+        // Canvas text readback can differ by 1–2 color levels at glyph edges
+        // after GPU/software rasterization; actual changed digits differ far more.
+        assert(resetClock.shared); assert(resetClock.maxDifference <= 3);
+      });
+      await checkAdventures({ page, check, base, appUrl, state, status, chooseWorld });
       await check(`${base} round trip preserves browsing, outfit, colors, motion, scroll and focus`, async () => {
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('#playground-dialog').getAttribute('open'), null);
@@ -170,6 +249,7 @@ try {
         const frame = await page.evaluate(() => window.duckrobe.preview.renderer.info.render.frame);
         await page.waitForFunction(frame => window.duckrobe.preview.renderer.info.render.frame > frame, frame);
       });
+      await checkAlbumRestore({ page, check, base, enter, exit, before });
       if (base === '/') {
         await check('missing model assets show Retry and Back; retry recovers', async () => {
           // A new page drops successful prepared-asset caches, so this still
@@ -193,6 +273,16 @@ try {
           await page.locator('#open-playground').click(); await requested; await exit(); release();
           await enter(); await exit();
         });
+        await check('rapid environment changes during policy loading discard stale workers', async () => {
+          let release, reached; const gate = new Promise(resolve => { release = resolve; }); const requested = new Promise(resolve => { reached = resolve; });
+          await page.route('**/playground/walking.onnx', async route => { reached(); await gate; await route.abort().catch(() => {}); }, { times: 1 });
+          await page.locator('#open-playground').click(); await requested;
+          await page.locator('select[data-world]').selectOption('park');
+          await chooseWorld('arena'); release(); await advance(.1);
+          assert.equal(await page.evaluate(() => window.__workers.active), 1);
+          assert.equal(await page.locator('.playground-canvas canvas').count(), 1);
+          assert.equal((await state()).status, 'running'); await exit();
+        });
         await check('worker fall/runtime errors reach recoverable UI', async () => {
           await enter();
           await page.evaluate(() => { const w = window.__workers.instances.at(-1); w.postMessage({ type: 'pause' }); w.dispatchEvent(new MessageEvent('message', { data: { type: 'fallen' } })); });
@@ -205,7 +295,9 @@ try {
         await check('saved view and Chinese labels survive the round trip', async () => {
           await revealControl('[data-language="zh"]', page); await page.locator('#saved-nav').click();
           const saved = await page.evaluate(() => structuredClone(window.duckrobe.state));
-          await enter(); assert.match(await page.locator('[data-back]').innerText(), /换装/); await exit();
+          await enter(); assert.match(await page.locator('[data-back]').innerText(), /换装/);
+          assert.match(await page.locator('select[data-world] option[value="circuit"]').innerText(), /赛道/);
+          await chooseWorld('park'); assert.match(await page.locator('[data-activity-title]').innerText(), /游园/); await exit();
           assert.deepEqual(await page.evaluate(() => structuredClone(window.duckrobe.state)), saved);
         });
         await check('long garments stay attached while standing, walking and turning', async () => {
@@ -214,12 +306,12 @@ try {
           await enter();
           for (const [label, key] of [['stand', null], ['walk', 'w'], ['turn', 'a']]) {
             if (key) { await page.keyboard.down(key); await advance(.6); await page.keyboard.up(key); }
-            await page.screenshot({ path: path.join(output, `playground-cape-${label}.png`) });
+            await snapshot({ path: path.join(output, `playground-cape-${label}.png`) });
           }
           await exit();
           await page.evaluate(() => window.duckrobe.selectLook('sunday-linen'));
           await enter(); await page.keyboard.down('w'); await advance(.6); await page.keyboard.up('w');
-          await page.screenshot({ path: path.join(output, 'playground-dress-walk.png') }); await exit();
+          await snapshot({ path: path.join(output, 'playground-dress-walk.png') }); await exit();
         });
       }
       await check(`${base} mobile portrait/landscape layout and pointer steering`, async () => {
@@ -234,20 +326,23 @@ try {
         assert.deepEqual(await page.evaluate(() => { const m = window.__workers.messages.at(-1); return [m.forward, m.turn]; }), [1, -1]);
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         assert.equal(await page.evaluate(() => window.__workers.messages.at(-1).forward), 0); await cdp.detach();
-        for (const [width, height, label] of [[390, 844, 'mobile'], [844, 390, 'landscape']]) {
-          await page.setViewportSize({ width, height });
-          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-          for (const selector of ['[data-back]', '[data-pause]', '[data-reset]', '[data-follow]', '[data-direction="right"]']) {
-            const rect = await page.locator(selector).boundingBox(); assert(rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= width && rect.y + rect.height <= height, `${selector} outside viewport`);
-            assert(await page.locator(selector).evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), `${selector} covered by another control`);
+        for (const id of ['circuit', 'park', 'harbor']) {
+          await chooseWorld(id); await page.locator('[data-pause]').click();
+          for (const [width, height, label] of [[390, 844, 'mobile'], [844, 390, 'landscape']]) {
+            await page.setViewportSize({ width, height });
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            for (const selector of ['[data-back]', 'select[data-world]', '[data-pause]', '[data-reset]', '[data-follow]', '[data-overview]', '[data-direction="right"]', '[data-photo]', '[data-album]', '[data-portrait]']) {
+              const rect = await page.locator(selector).boundingBox(); assert(rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= width && rect.y + rect.height <= height, `${selector} outside viewport`);
+              assert(await page.locator(selector).evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), `${selector} covered by another control`);
+            }
+            await snapshot({ path: path.join(output, `playground-${id}-${label}${base === '/' ? '' : '-pages'}.png`) });
           }
-          await page.screenshot({ path: path.join(output, `playground-${label}${base === '/' ? '' : '-pages'}.png`) });
         }
         await exit(); assert.equal(await page.locator('.playground-canvas canvas').count(), 0);
       });
       assert.deepEqual(errors, [], 'Unhandled browser errors');
     } catch (error) {
-      await page.screenshot({ path: path.join(output, 'playground-failure.png') }).catch(() => {});
+      await snapshot({ path: path.join(output, 'playground-failure.png') }).catch(() => {});
       console.error('Playground state:', await page.locator('#playground-host').innerText().catch(() => 'unavailable'));
       throw error;
     } finally { await context.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

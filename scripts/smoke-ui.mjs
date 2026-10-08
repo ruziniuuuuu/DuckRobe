@@ -19,7 +19,8 @@ const slots = ['hat', 'eyewear', 'body', 'accessory', 'legwear'];
 const regions = ['chest', 'side', 'back'];
 const results = [], errors = [], warnings = [], screenshots = [];
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const gpuArgs = process.env.DUCKROBE_QA_GPU === 'metal' ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', ...gpuArgs] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 const page = await context.newPage();
 function watch(target, label = '') {
@@ -252,7 +253,7 @@ try {
     const after = await page.evaluate(() => window.duckrobe.preview.camera.position.toArray()); assert(before.some((value, i) => Math.abs(value - after[i]) > .02)); await page.locator('#reset-camera').click();
     await page.locator('#look-name').click(); await page.keyboard.press('/'); assert(await page.locator('#outfit-search').evaluate(element => element === document.activeElement));
     await revealControl('#about-button', page); assert(await page.locator('#info-dialog').isVisible()); assert(await page.locator('#info-dialog').evaluate(element => element.contains(document.activeElement)));
-    await page.keyboard.press('Escape'); assert(!(await page.locator('#info-dialog').isVisible())); assert(await page.locator('#app-more > summary').evaluate(element => element === document.activeElement));
+    await page.keyboard.press('Escape'); assert(!(await page.locator('#info-dialog').isVisible())); await page.waitForFunction(() => document.querySelector('#app-more > summary') === document.activeElement);
   });
   await check('actual download contains canonical v3 multi-accessory selection, colors and all 38 native meshes', async () => {
     const current = await selection(), palette = await colors(); assert(regions.every(region => current.accessory[region]));
