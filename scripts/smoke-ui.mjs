@@ -19,7 +19,9 @@ const slots = ['hat', 'eyewear', 'body', 'accessory', 'legwear'];
 const regions = ['chest', 'side', 'back'];
 const results = [], errors = [], warnings = [], screenshots = [];
 await mkdir(output, { recursive: true });
-const gpuArgs = process.env.DUCKROBE_QA_GPU === 'metal' ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+const gpuArgs = process.env.DUCKROBE_QA_GPU === 'metal' ? ['--use-angle=metal']
+  : process.env.DUCKROBE_QA_GPU === 'vulkan' ? ['--enable-gpu', '--use-angle=vulkan']
+  : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', ...gpuArgs] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 const page = await context.newPage();

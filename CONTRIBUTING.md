@@ -50,7 +50,8 @@ mixed outfits while standing, walking and turning. Include a long garment,
 hat, eyewear, shoes and all three accessory regions.
 
 On macOS, `DUCKROBE_QA_GPU=metal npm run check:playground:ui` uses native Metal
-rendering. The default remains SwiftShader for headless environments without
+rendering. On Linux with a working Vulkan driver, `DUCKROBE_QA_GPU=vulkan`
+uses the available GPU. The default remains SwiftShader for headless environments without
 a hardware GPU; the same GPU option is supported by `check:ui`. For a stable
 wardrobe regression run, build once, run `npm run preview` and set
 `DUCKROBE_URL` to its address so source edits cannot interrupt checks with HMR.

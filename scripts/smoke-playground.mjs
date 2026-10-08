@@ -21,7 +21,9 @@ async function revealControl(selector, target) {
 const output = path.resolve(process.env.DUCKROBE_QA_OUTPUT || 'test-results');
 await mkdir(output, { recursive: true });
 const temporary = await mkdtemp(path.join(tmpdir(), 'duckrobe-playground-'));
-const gpuArgs = process.env.DUCKROBE_QA_GPU === 'metal' ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+const gpuArgs = process.env.DUCKROBE_QA_GPU === 'metal' ? ['--use-angle=metal']
+  : process.env.DUCKROBE_QA_GPU === 'vulkan' ? ['--enable-gpu', '--use-angle=vulkan']
+  : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', ...gpuArgs] });
 const results = [];
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
