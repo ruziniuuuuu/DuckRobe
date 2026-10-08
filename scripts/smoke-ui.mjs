@@ -5,6 +5,14 @@ import { chromium } from 'playwright';
 import { unzipSync } from 'fflate';
 import { DOMParser } from '@xmldom/xmldom';
 
+async function revealControl(selector, target = page) {
+  let panel;
+  if (/data-language|#about-button|#export-look|#repository-link/.test(selector)) panel = 'app-more';
+  else if (/data-theme|#filter-favorites/.test(selector)) panel = 'collection-filter';
+  else if (/data-remove-item|#clear-look/.test(selector)) panel = 'wearing-panel';
+  if (panel && !await target.locator('#' + panel).evaluate(el => el.open)) await target.locator('#' + panel + ' > summary').click();
+  await target.locator(selector).click();
+}
 const url = process.env.DUCKROBE_URL || 'http://localhost:5173';
 const output = path.resolve(process.env.DUCKROBE_QA_OUTPUT || 'test-results');
 const slots = ['hat', 'eyewear', 'body', 'accessory', 'legwear'];
@@ -110,7 +118,7 @@ try {
     await selectLook(first.id); assert.deepEqual(await colors(), first.bodyColors);
     const image = await page.locator(`[data-outfit="${first.id}"] img`).getAttribute('src');
     await setColor('#shell-color', '#9fbc8e'); await setColor('#accent-color', '#f5cf76');
-    await openPanel('colors-panel'); await page.locator('#color-lock').click(); assert.equal(await page.locator('#color-lock').getAttribute('aria-pressed'), 'true');
+    await openPanel('colors-panel'); assert.equal(await page.locator('#color-lock').getAttribute('aria-pressed'), 'true');
     await selectLook(different.id); assert.deepEqual(await colors(), { shell: '#9fbc8e', accent: '#f5cf76' });
     assert.equal(await page.locator(`[data-outfit="${first.id}"] img`).getAttribute('src'), image, 'Kit previews must retain their own palette');
     const painted = await page.evaluate(() => { const result = {}; window.duckrobe.rig.group.traverse(mesh => { if (!mesh.isMesh) return; if (mesh.userData.meshFile === 'top_head_shell.stl') result.shell = `#${mesh.material.color.getHexString()}`; if (mesh.userData.meshFile === 'jaw.stl') result.accent = `#${mesh.material.color.getHexString()}`; }); return result; });
@@ -121,8 +129,8 @@ try {
     await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await workspace();
     assert.equal(await page.locator('#color-lock').getAttribute('aria-pressed'), 'true'); assert.deepEqual(await colors(), { shell: '#bdace3', accent: '#f5cf76' });
     await openPanel('colors-panel'); await page.locator('#apply-look-colors').click(); assert.deepEqual(await colors(), different.bodyColors);
-    assert.equal(await page.locator('#color-lock').getAttribute('aria-pressed'), 'true');
-    await openPanel('colors-panel'); await page.locator('#color-lock').click(); await selectLook(first.id); assert.deepEqual(await colors(), first.bodyColors);
+    assert.equal(await page.locator('#color-lock').getAttribute('aria-pressed'), 'false');
+    await selectLook(first.id); assert.deepEqual(await colors(), first.bodyColors);
   });
   await check('scrolling incrementally renders all 100 unique real previews', async () => {
     await switchSlot('all'); await workspace();
@@ -144,15 +152,15 @@ try {
     await switchSlot('all');
   });
   await check('10 collections each show 10 kits, and English/Chinese searches work in both languages', async () => {
-    for (const theme of themes) { await page.locator(`[data-theme="${theme.id}"]`).click(); assert.equal(await page.locator('[data-outfit]').count(), 10); }
-    await page.locator('[data-theme="all"]').click();
+    for (const theme of themes) { await revealControl(`[data-theme="${theme.id}"]`, page); assert.equal(await page.locator('[data-outfit]').count(), 10); }
+    await revealControl('[data-theme="all"]', page);
     await page.locator('#outfit-search').fill(catalog[0].en); assert(await page.locator(`[data-outfit="${catalog[0].id}"]`).isVisible());
     await page.locator('#outfit-search').fill(catalog[0].name); assert(await page.locator(`[data-outfit="${catalog[0].id}"]`).isVisible());
-    const before = await selection(); await page.locator('[data-language="zh"]').click(); assert.match(await page.locator('html').getAttribute('lang'), /^zh/);
+    const before = await selection(); await revealControl('[data-language="zh"]', page); assert.match(await page.locator('html').getAttribute('lang'), /^zh/);
     await openPanel('colors-panel'); assert(/\p{Script=Han}/u.test(await page.locator('#color-lock').innerText())); assert.deepEqual(await selection(), before);
     await page.locator('#outfit-search').fill('no-such-duck-qa-837'); assert.equal(await page.locator('[data-outfit]').count(), 0);
     await page.locator('#clear-filters').click(); assert.equal(await page.locator('[data-outfit]').count(), 100);
-    await page.locator('[data-language="en"]').click();
+    await revealControl('[data-language="en"]', page);
   });
   await check('independent products equip and remove without changing other slots', async () => {
     for (const slot of slots.filter(slot => slot !== 'accessory')) {
@@ -161,11 +169,11 @@ try {
       const item = pool.find(item => item.id !== before[slot]); assert(item); await selectItem(item.id);
       const after = await selection(); assert.equal(after[slot], item.id); unchangedOtherSlots(before, after, slot);
       assert.equal(await page.locator(`[data-item="${item.id}"] .card-open`).getAttribute('aria-pressed'), 'true');
-      await page.locator(`[data-remove-item="${item.id}"]`).click(); const removed = await selection(); assert.equal(removed[slot], null); unchangedOtherSlots(after, removed, slot);
+      await revealControl(`[data-remove-item="${item.id}"]`, page); const removed = await selection(); assert.equal(removed[slot], null); unchangedOtherSlots(after, removed, slot);
     }
   });
   await check('chest, side and back coexist; same-region replacement and per-piece removal preserve neighbors', async () => {
-    await page.locator('#clear-look').click(); assert.deepEqual(await selectedIds(), []); await switchSlot('accessory');
+    await revealControl('#clear-look', page); assert.deepEqual(await selectedIds(), []); await switchSlot('accessory');
     const chosen = {};
     for (const region of regions) {
       const pool = items.filter(item => item.slot === 'accessory' && item.region === region); assert(pool.length > 1);
@@ -177,7 +185,7 @@ try {
     const replacement = items.find(item => item.slot === 'accessory' && item.region === 'chest' && item.id !== chosen.chest); assert(replacement);
     await page.locator('[data-accessory-region="chest"]').click(); await selectItem(replacement.id); chosen.chest = replacement.id;
     assert.deepEqual((await selection()).accessory, chosen); assert.deepEqual(await attachedIds(), Object.values(chosen).sort());
-    await page.locator(`[data-remove-item="${chosen.side}"]`).click(); assert.deepEqual((await selection()).accessory, { ...chosen, side: null });
+    await revealControl(`[data-remove-item="${chosen.side}"]`, page); assert.deepEqual((await selection()).accessory, { ...chosen, side: null });
     await page.locator('[data-accessory-region="side"]').click(); await selectItem(chosen.side);
     await page.locator('[data-accessory-region="back"]').click(); await selectItem(chosen.back); assert.deepEqual((await selection()).accessory, { ...chosen, back: null });
     await selectItem(chosen.back); assert.deepEqual((await selection()).accessory, chosen);
@@ -186,10 +194,10 @@ try {
   });
   await check('kit and piece favorites retain their own IDs and filters', async () => {
     await switchSlot('all'); const look = catalog[0]; await page.locator(`[data-outfit="${look.id}"] .card-heart`).click();
-    await page.locator('#filter-favorites').click(); assert.equal(await page.locator('[data-outfit]').count(), 1);
-    await page.locator('[data-outfit] .card-heart').click(); assert.equal(await page.locator('[data-outfit]').count(), 0); await page.locator('#filter-favorites').click();
+    await revealControl('#filter-favorites', page); assert.equal(await page.locator('[data-outfit]').count(), 1);
+    await page.locator('[data-outfit] .card-heart').click(); assert.equal(await page.locator('[data-outfit]').count(), 0); await revealControl('#filter-favorites', page);
     await switchSlot('body'); const piece = items.find(item => item.slot === 'body'); await page.locator(`[data-item="${piece.id}"] .card-heart`).click();
-    await page.locator('#filter-favorites').click(); assert.equal(await page.locator('[data-item]').count(), 1); await page.locator('[data-item] .card-heart').click(); assert.equal(await page.locator('[data-item]').count(), 0); await page.locator('#filter-favorites').click();
+    await revealControl('#filter-favorites', page); assert.equal(await page.locator('[data-item]').count(), 1); await page.locator('[data-item] .card-heart').click(); assert.equal(await page.locator('[data-item]').count(), 0); await revealControl('#filter-favorites', page);
   });
   let savedSelection, savedColors, savedId;
   await check('saving a multi-accessory look keeps colors, lock and canonical choices across reload', async () => {
@@ -198,7 +206,7 @@ try {
     await page.locator('#save-look').click(); savedId = await page.evaluate(() => window.duckrobe.state.saved[0].id);
     await page.locator('#save-look').click(); assert.equal(await page.locator('#saved-count').innerText(), '1');
     await setColor('#shell-color', '#ed8938'); await page.locator('#save-look').click(); assert.equal(await page.locator('#saved-count').innerText(), '2');
-    await page.locator('#clear-look').click(); assert.deepEqual(await selectedIds(), []); await page.locator('#saved-nav').click();
+    await revealControl('#clear-look', page); assert.deepEqual(await selectedIds(), []); await page.locator('#saved-nav').click();
     await page.locator(`[data-saved="${savedId}"] .card-open`).click(); assert.deepEqual(await selection(), savedSelection); assert.deepEqual(await colors(), savedColors);
     await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); await workspace();
     assert.deepEqual(await selection(), savedSelection); assert.deepEqual(await colors(), savedColors); assert.equal(await page.locator('#color-lock').getAttribute('aria-pressed'), 'true');
@@ -243,12 +251,12 @@ try {
     await page.mouse.move(box.x + box.width * .5, box.y + box.height * .55); await page.mouse.down(); await page.mouse.move(box.x + box.width * .76, box.y + box.height * .58, { steps: 10 }); await frames(8); await page.mouse.up(); await page.mouse.move(1, 1);
     const after = await page.evaluate(() => window.duckrobe.preview.camera.position.toArray()); assert(before.some((value, i) => Math.abs(value - after[i]) > .02)); await page.locator('#reset-camera').click();
     await page.locator('#look-name').click(); await page.keyboard.press('/'); assert(await page.locator('#outfit-search').evaluate(element => element === document.activeElement));
-    await page.locator('#about-button').click(); assert(await page.locator('#info-dialog').isVisible()); assert(await page.locator('#info-dialog').evaluate(element => element.contains(document.activeElement)));
-    await page.keyboard.press('Escape'); assert(!(await page.locator('#info-dialog').isVisible())); assert(await page.locator('#about-button').evaluate(element => element === document.activeElement));
+    await revealControl('#about-button', page); assert(await page.locator('#info-dialog').isVisible()); assert(await page.locator('#info-dialog').evaluate(element => element.contains(document.activeElement)));
+    await page.keyboard.press('Escape'); assert(!(await page.locator('#info-dialog').isVisible())); assert(await page.locator('#app-more > summary').evaluate(element => element === document.activeElement));
   });
   await check('actual download contains canonical v3 multi-accessory selection, colors and all 38 native meshes', async () => {
     const current = await selection(), palette = await colors(); assert(regions.every(region => current.accessory[region]));
-    const downloading = page.waitForEvent('download', { timeout: 120000 }); await page.locator('#export-look').click(); const download = await downloading;
+    const downloading = page.waitForEvent('download', { timeout: 120000 }); await revealControl('#export-look', page); const download = await downloading;
     const destination = path.join(output, 'duckrobe-three-accessories.zip'); await download.saveAs(destination); assert.equal(await download.failure(), null);
     const files = unzipSync(await readFile(destination)), decoder = new TextDecoder(), parser = new DOMParser();
     const manifest = JSON.parse(decoder.decode(files['manifest.json'])); assert.equal(manifest.formatVersion, 3); assert.deepEqual(manifest.selection, current); assert.deepEqual(manifest.bodyColors, palette);
@@ -274,26 +282,26 @@ try {
       await legacyPage.locator('#saved-nav').click(); await legacyPage.waitForFunction(() => window.duckrobe.state.saved[0].thumbnail?.length > 3000, null, { timeout: 180000 });
       const saved = await legacyPage.evaluate(() => window.duckrobe.state.saved[0]); assert.deepEqual(saved.selection, expected); assert.equal(saved.date, '2026-10-01T20:00:00.000Z'); assert.notEqual(saved.thumbnail, oldThumbnail); assert.equal(saved.thumbnailVersion, 'microduck-accessories-v5');
       assert.match(await legacyPage.locator('[data-saved] .card-subtitle').innerText(), /2 Oct|Oct 2/); assert(await legacyPage.evaluate(id => window.duckrobe.state.favorites.has(`item:${id}`), piece.id));
-      await legacyPage.locator('#clear-look').click(); await legacyPage.locator('[data-saved] .card-open').click(); assert.deepEqual(await selection(legacyPage), expected); assert.deepEqual(await colors(legacyPage), { shell: '#bdace3', accent: '#f2dbac' });
+      await revealControl('#clear-look', legacyPage); await legacyPage.locator('[data-saved] .card-open').click(); assert.deepEqual(await selection(legacyPage), expected); assert.deepEqual(await colors(legacyPage), { shell: '#bdace3', accent: '#f2dbac' });
       await snapshot('legacy-scalar-migration.png', legacyPage);
     } finally { await legacyContext.close(); await page.bringToFront(); }
   });
   await check('saved deletion persists and desktop 1366×768 exposes all workspace controls', async () => {
     await page.locator('#saved-nav').click(); while (await page.locator('[data-saved]').count()) await page.locator('[data-saved] .card-delete').first().click(); assert.equal(await page.locator('#saved-count').innerText(), '0');
     await page.locator('#clear-filters').click(); await switchSlot('all'); await page.setViewportSize({ width: 1366, height: 768 }); await workspace(); await noOverflow();
-    for (const selector of ['#save-look', '#export-look', '#colors-panel > summary', '#moves-panel > summary', '#frame-camera']) { const box = await page.locator(selector).boundingBox(); assert(box && box.y >= 0 && box.y + box.height <= 769, `${selector} outside the workspace`); }
+    for (const selector of ['#save-look', '#undo-look', '#colors-panel > summary', '#moves-panel > summary', '#frame-camera']) { const box = await page.locator(selector).boundingBox(); assert(box && box.y >= 0 && box.y + box.height <= 769, `${selector} outside the workspace`); }
     await snapshot('desktop-1366.png');
     await page.reload({ waitUntil: 'domcontentloaded' }); await ready(); assert.equal(await page.locator('#saved-count').innerText(), '0');
   });
-  await check('340/390 mobile and tablet preserve natural page scrolling and usable controls', async () => {
+  await check('340/390 mobile and tablet keep the preview visible while the wardrobe scrolls', async () => {
     for (const width of [390, 340, 768]) {
       await page.setViewportSize({ width, height: width === 768 ? 1024 : 844 }); await page.evaluate(() => scrollTo(0, 0)); await noOverflow();
-      const natural = await page.locator('#catalog-scroll').evaluate(element => ({ style: getComputedStyle(element).overflowY, height: element.clientHeight, content: element.scrollHeight })); assert(['visible', 'clip'].includes(natural.style)); assert(natural.height >= natural.content - 3);
+      const natural = await page.locator('#catalog-scroll').evaluate(element => ({ style: getComputedStyle(element).overflowY, height: element.clientHeight, content: element.scrollHeight })); assert.equal(natural.style, 'auto'); assert(natural.content > natural.height);
       await snapshot(`${width === 768 ? 'tablet' : `mobile-${width}`}-top.png`);
       await switchSlot('accessory'); await page.locator('[data-accessory-region="back"]').click(); const item = items.find(item => item.slot === 'accessory' && item.region === 'back');
       const before = await selection(); await selectItem(item.id); const after = await selection(); unchangedOtherSlots(before, after, 'accessory'); assert.deepEqual(after.accessory, { ...before.accessory, back: before.accessory.back === item.id ? null : item.id });
-      await page.locator('#export-look').scrollIntoViewIfNeeded(); assert(await page.locator('#export-look').isVisible()); await noOverflow(); await snapshot(`${width === 768 ? 'tablet' : `mobile-${width}`}-controls.png`);
-      await page.locator('[data-language="zh"]').click(); await noOverflow(); await page.locator('[data-language="en"]').click(); await switchSlot('all');
+      await openPanel('app-more'); assert(await page.locator('#export-look').isVisible()); await noOverflow(); await snapshot(`${width === 768 ? 'tablet' : `mobile-${width}`}-controls.png`);
+      await revealControl('[data-language="zh"]', page); await noOverflow(); await revealControl('[data-language="en"]', page); await switchSlot('all');
     }
     await page.setViewportSize({ width: 1440, height: 900 }); await workspace();
   });

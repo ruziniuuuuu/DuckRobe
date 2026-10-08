@@ -8,6 +8,14 @@ import { chromium } from 'playwright';
 
 // Exercise real production chunks and WASM under strict static hosting:
 // requests outside the selected base receive 404, never an SPA fallback.
+async function revealControl(selector, target) {
+  let panel;
+  if (/data-language|#about-button|#export-look|#repository-link/.test(selector)) panel = 'app-more';
+  else if (/data-theme|#filter-favorites/.test(selector)) panel = 'collection-filter';
+  else if (/data-remove-item|#clear-look/.test(selector)) panel = 'wearing-panel';
+  if (panel && !await target.locator('#' + panel).evaluate(el => el.open)) await target.locator('#' + panel + ' > summary').click();
+  await target.locator(selector).click();
+}
 const output = path.resolve(process.env.DUCKROBE_QA_OUTPUT || 'test-results');
 await mkdir(output, { recursive: true });
 const temporary = await mkdtemp(path.join(tmpdir(), 'duckrobe-playground-'));
@@ -195,13 +203,13 @@ try {
           await page.locator('[data-recover]').click(); await status('running'); await exit();
         });
         await check('saved view and Chinese labels survive the round trip', async () => {
-          await page.locator('[data-language="zh"]').click(); await page.locator('#saved-nav').click();
+          await revealControl('[data-language="zh"]', page); await page.locator('#saved-nav').click();
           const saved = await page.evaluate(() => structuredClone(window.duckrobe.state));
-          await enter(); assert.match(await page.locator('[data-back]').innerText(), /返回衣橱/); await exit();
+          await enter(); assert.match(await page.locator('[data-back]').innerText(), /换装/); await exit();
           assert.deepEqual(await page.evaluate(() => structuredClone(window.duckrobe.state)), saved);
         });
         await check('long garments stay attached while standing, walking and turning', async () => {
-          await page.locator('[data-language="en"]').click();
+          await revealControl('[data-language="en"]', page);
           await page.evaluate(() => window.duckrobe.selectLook('library-spell'));
           await enter();
           for (const [label, key] of [['stand', null], ['walk', 'w'], ['turn', 'a']]) {

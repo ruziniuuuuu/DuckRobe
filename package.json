@@ -7,6 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "check:sharing": "node scripts/validate-sharing.mjs",
+    "check:studio": "node scripts/validate-studio-ui.mjs",
     "check:ui": "node scripts/smoke-ui.mjs",
     "check:exports": "node scripts/validate-exports.mjs --all",
     "check:playground": "node scripts/validate-playground.mjs",
