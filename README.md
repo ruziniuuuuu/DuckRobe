@@ -1,6 +1,10 @@
 <h1 align="center"><img src="public/brand/logo.svg" width="280" alt="DuckRobe" /></h1>
 
-[![DuckRobe — Every duck deserves a wardrobe.](public/brand/cover.png)](https://ruziniuuuuu.github.io/DuckRobe/)
+[![Watch DuckRobe — a 30-second tour of duck outfits and Playground adventures.](public/promo/cover.png)](public/promo/duckrobe-30s.mp4)
+
+**[Watch the film · 30 seconds](public/promo/duckrobe-30s.mp4)** · **[Try DuckRobe](https://ruziniuuuuu.github.io/DuckRobe/)**
+
+Dress your duck, explore the racetrack, park and harbor, and collect postcards along the way.
 
 See the [studio guide](docs/studio.md) for editing, undo, sharing and local validation.
 
