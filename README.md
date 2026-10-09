@@ -1,8 +1,8 @@
 <h1 align="center"><img src="public/brand/logo.svg" width="280" alt="DuckRobe" /></h1>
 
-[![Watch DuckRobe — a 30-second tour of duck outfits and Playground adventures.](public/promo/cover.png)](public/promo/duckrobe-30s.mp4)
+https://github.com/user-attachments/assets/2d758c46-dfb4-431c-92f0-5a52c9944def
 
-**[Watch the film · 30 seconds](public/promo/duckrobe-30s.mp4)** · **[Try DuckRobe](https://ruziniuuuuu.github.io/DuckRobe/)**
+**[Try DuckRobe](https://ruziniuuuuu.github.io/DuckRobe/)** · [Download the film · 30 seconds](public/promo/duckrobe-30s.mp4)
 
 Dress your duck, explore the racetrack, park and harbor, and collect postcards along the way.
 
